@@ -2,7 +2,7 @@ import { Button, Switch } from '@heroui/react'
 import { Modal } from '@heroui-v3/react'
 import React, { useEffect, useState } from 'react'
 import { BaseEditor } from '../base/base-editor-lazy'
-import { getOverride, restartCore, setOverride } from '@renderer/utils/ipc'
+import { getOverride, hotReloadCore, setOverride } from '@renderer/utils/ipc'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import ConfirmModal from '../base/base-confirm'
 
@@ -92,7 +92,7 @@ const EditFileModal: React.FC<Props> = (props) => {
                   onPress={async () => {
                     try {
                       await setOverride(id, language === 'javascript' ? 'js' : 'yaml', currData)
-                      await restartCore()
+                      await hotReloadCore()
                     } catch (e) {
                       alert(e)
                     } finally {

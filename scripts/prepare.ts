@@ -50,7 +50,7 @@ async function getLatestAlphaVersion() {
     console.log(`Latest alpha version: ${MIHOMO_ALPHA_VERSION}`)
   } catch (error) {
     console.error('Error fetching latest alpha version:', getErrorMessage(error))
-    process.exit(1)
+    console.error('Warning: alpha version fetch failed, skipping alpha mihomo download')
   }
 }
 
@@ -300,7 +300,7 @@ const resolveSparkleService = () => {
 
   return resolveResource({
     file: `sparkle-service${ext}`,
-    downloadURL: `https://github.com/xishang0128/sparkle-service/releases/download/pre-release/${base}${ext}`,
+    downloadURL: `https://github.com/xuennai/sparkle-service/releases/download/pre-release/${base}${ext}`,
     needExecutable: true
   })
 }

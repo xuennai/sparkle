@@ -4,6 +4,11 @@
   Var sparkleServiceWasRunning
 !macroend
 
+; 覆盖安装时不清除原文件夹，保留已存在的文件（如用户自定义的 sparkle-service.exe）
+!macro customRemoveFiles
+!macroend
+
+
 !macro ServiceOutputContains NEEDLE RESULT
   StrCpy ${RESULT} "false"
   StrCpy $R5 0
@@ -80,21 +85,64 @@
 !macroend
 
 !macro customInit
+  ; [DEBUG] 创建 NSIS 调试日志文件，记录安装流程每一步
+  Push $R0
+  FileOpen $R0 "$APPDATA\Sparkle-NSIS-Debug.log" w
+  FileWrite $R0 "=== Sparkle Installer Debug Log ===$\r$\n"
+  FileWrite $R0 "INSTDIR: $INSTDIR$\r$\n"
+  FileWrite $R0 "--- customInit Begin ---$\r$\n"
+  FileWrite $R0 "Killing conflicting processes...$\r$\n"
+  FileClose $R0
+  Pop $R0
+
+  ; 暴力杀进程：清理所有可能锁定文件的残留进程
+  nsExec::ExecToStack 'taskkill /F /IM "sparkle.exe" /T'
+  nsExec::ExecToStack 'taskkill /F /IM "sparkle-service.exe" /T'
+  nsExec::ExecToStack 'taskkill /F /IM "mihomo-*.exe" /T'
+
   StrCpy $sparkleServiceWasRunning "false"
   !insertmacro StopSparkleServiceIfRunning
 
-  ; 覆盖安装：杀死正在运行的 Sparkle GUI 进程，释放文件锁
-  nsExec::ExecToStack 'taskkill /f /im Sparkle.exe 2>NUL'
-  Pop $R2
-  nsExec::ExecToStack 'taskkill /f /im Sparkle* 2>NUL'
-  Pop $R2
+  ; [DEBUG] 日志：服务状态处理完毕
+  Push $R1
+  FileOpen $R1 "$APPDATA\Sparkle-NSIS-Debug.log" a
+  FileWrite $R1 "sparkleServiceWasRunning: $sparkleServiceWasRunning$\r$\n"
+  FileWrite $R1 "Deleting RegKey HKLM...$\r$\n"
+  FileClose $R1
+  Pop $R1
 
   ; 覆盖安装：删除旧版注册表项，让安装器跳过"卸载旧版"流程，直接覆盖写入
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\sparkle.app"
+
+  ; [DEBUG] 日志：HKLM 删除完毕
+  Push $R2
+  FileOpen $R2 "$APPDATA\Sparkle-NSIS-Debug.log" a
+  FileWrite $R2 "HKLM RegKey deleted (or not present)$\r$\n"
+  FileWrite $R2 "Deleting RegKey HKCU...$\r$\n"
+  FileClose $R2
+  Pop $R2
+
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\sparkle.app"
+
+  ; [DEBUG] 日志：HKCU 删除完毕，customInit 结束
+  Push $R3
+  FileOpen $R3 "$APPDATA\Sparkle-NSIS-Debug.log" a
+  FileWrite $R3 "HKCU RegKey deleted (or not present)$\r$\n"
+  FileWrite $R3 "--- customInit End ---$\r$\n"
+  FileWrite $R3 "==================================$\r$\n"
+  FileClose $R3
+  Pop $R3
 !macroend
 
 !macro customInstall
+  ; [DEBUG] customInstall 开始
+  Push $R4
+  FileOpen $R4 "$APPDATA\Sparkle-NSIS-Debug.log" a
+  FileWrite $R4 "--- customInstall Begin ---$\r$\n"
+  FileWrite $R4 "sparkleServiceWasRunning: $sparkleServiceWasRunning$\r$\n"
+  FileClose $R4
+  Pop $R4
+
   ${If} $sparkleServiceWasRunning == "true"
     StrCpy $R1 "$INSTDIR\resources\files\sparkle-service.exe"
     ${If} ${FileExists} "$R1"
@@ -106,6 +154,25 @@
       ${EndIf}
     ${EndIf}
   ${EndIf}
+
+  ; [DEBUG] customInstall 结束
+  Push $R5
+  FileOpen $R5 "$APPDATA\Sparkle-NSIS-Debug.log" a
+  FileWrite $R5 "--- customInstall End ---$\r$\n"
+  FileWrite $R5 "==================================$\r$\n"
+  FileClose $R5
+  Pop $R5
+!macroend
+
+!macro customInstallCompleted
+  ; [DEBUG] 安装器完整结束
+  Push $R6
+  FileOpen $R6 "$APPDATA\Sparkle-NSIS-Debug.log" a
+  FileWrite $R6 "--- customInstallCompleted ---$\r$\n"
+  FileWrite $R6 "Installer finished successfully$\r$\n"
+  FileWrite $R6 "==================================$\r$\n"
+  FileClose $R6
+  Pop $R6
 !macroend
 
 !endif

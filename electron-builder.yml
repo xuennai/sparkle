@@ -31,6 +31,7 @@ win:
     - 7z
   artifactName: ${name}-windows-${version}-${arch}-portable.${ext}
 nsis:
+  include: build/installer.nsh
   artifactName: ${name}-windows-${version}-${arch}-setup.${ext}
   uninstallDisplayName: ${productName}
   allowToChangeInstallationDirectory: true

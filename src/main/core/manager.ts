@@ -1041,7 +1041,8 @@ export async function hotReloadCore(): Promise<void> {
     const elapsed = Date.now() - t0
     await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Hot reload SUCCESS, elapsed: ${elapsed}ms\n`)
 
-    // 4. Notify frontend to refresh groups and rules
+    // 4. Notify frontend to refresh groups, rules, profile config and tray menu
+    mainWindow?.webContents.send('profileConfigUpdated')
     mainWindow?.webContents.send('groupsUpdated')
     mainWindow?.webContents.send('rulesUpdated')
     ipcMain.emit('updateTrayMenu')

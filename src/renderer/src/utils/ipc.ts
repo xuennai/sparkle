@@ -233,6 +233,10 @@ export async function setOverride(id: string, ext: 'js' | 'yaml', str: string): 
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('setOverride', id, ext, str))
 }
 
+export async function hotReloadCore(): Promise<void> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('hotReloadCore'))
+}
+
 export async function restartCore(): Promise<void> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('restartCore'))
 }

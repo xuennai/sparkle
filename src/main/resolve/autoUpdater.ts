@@ -126,10 +126,20 @@ export async function downloadAndInstallUpdate(version: string): Promise<void> {
 
     await triggerSysProxy(false, false)
     if (file.endsWith('.exe')) {
-      spawn(path.join(dataDir(), file), ['/S', '--force-run'], {
+      const installerPath = path.join(dataDir(), file)
+      // [DEBUG] 非静默模式：移除 /S，让安装器弹出 GUI，观察是否因文件锁定报错
+      spawn('cmd.exe', [
+        '/c',
+        `timeout /t 2 /nobreak >nul & start "Sparkle Installer Debug" "${installerPath}" --force-run`
+      ], {
         detached: true,
+        windowsHide: false,
         stdio: 'ignore'
       }).unref()
+      // 绕过退出确认，触发正常退出流程
+      setNotQuitDialog()
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      app.quit()
     }
     if (file.endsWith('.7z')) {
       await stopServiceForPortableUpdate()
