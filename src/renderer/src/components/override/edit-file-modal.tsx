@@ -93,9 +93,10 @@ const EditFileModal: React.FC<Props> = (props) => {
                     try {
                       await setOverride(id, language === 'javascript' ? 'js' : 'yaml', currData)
                       await restartCore()
-                      onClose()
                     } catch (e) {
                       alert(e)
+                    } finally {
+                      onClose()
                     }
                   }}
                 >

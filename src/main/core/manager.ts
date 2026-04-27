@@ -80,6 +80,10 @@ let serviceCoreStreamsStarting: Promise<void> | null = null
 let lastServiceCoreEventKey = ''
 let serviceCoreStartupActive = false
 let serviceCoreReconnectResumePromise: Promise<void> | null = null
+/** Flag: set to true when controller_ready WebSocket event is received */
+let controllerReadyReceived = false
+/** Resolver for the controller_ready event promise, used in service mode startup */
+let controllerReadyResolve: (() => void) | null = null
 const serviceConnectionRetryTimeout = 10000
 const serviceConnectionRetryInterval = 500
 
@@ -405,6 +409,9 @@ async function startCoreImpl(
     await appendAppLog(`[Manager]: Core permission mode: service, starting service core...\n`)
     ensureServiceCoreEventHandler()
     serviceCoreStartupActive = true
+    // Reset controller_ready tracking before starting core
+    controllerReadyReceived = false
+    controllerReadyResolve = null
     try {
       const tWs = Date.now()
       await appendAppLog(`[Manager]: Starting service core event stream...\n`)
@@ -453,8 +460,37 @@ async function startCoreImpl(
     logCoreStateTransition('RUNNING')
     if (globalTimeout) clearTimeout(globalTimeout)
     await appendAppLog(`[Manager]: ===== startCore (service mode) completed, total: ${Date.now() - startCoreStartedAt}ms =====\n`)
+
+    // Event-driven controller readiness detection:
+    // - New Go backend: POST returns ~2ms, WebSocket sends controller_ready ~1s later
+    // - If controller_ready already received (flag set during POST blocking), proceed immediately
+    // - If not received within 10s grace period, fall back to waitForMihomoReady polling
+    // - Always use waitForMihomoReady() as final safety net
+    // 5s grace period: if controller_ready doesn't arrive by then (old Go backend),
+    // fall back to polling. With new async Go backend, event arrives ~1s after POST.
+    const controllerReadyGracePeriod = 5000
+    const controllerReadyTimer = setTimeout(() => {
+      if (!controllerReadyReceived && controllerReadyResolve) {
+        controllerReadyResolve()
+        controllerReadyResolve = null
+        appendAppLog(`[Manager]: controller_ready not received within ${controllerReadyGracePeriod}ms grace period, falling back to polling\n`).catch(() => {})
+      }
+    }, controllerReadyGracePeriod)
+
     return [
       (async (): Promise<void> => {
+        if (controllerReadyReceived) {
+          await appendAppLog(`[Manager]: Controller already ready (event received during POST), proceeding to initialization\n`)
+          clearTimeout(controllerReadyTimer)
+        } else if (controllerReadyResolve === null) {
+          // Set up resolver for the controller_ready event
+          await appendAppLog(`[Manager]: Waiting for controller_ready event (grace period: ${controllerReadyGracePeriod}ms)...\n`)
+          await new Promise<void>((resolve) => {
+            controllerReadyResolve = resolve
+          })
+          clearTimeout(controllerReadyTimer)
+        }
+        // Safety net: waitForMihomoReady is instant if controller is already ready
         await waitForMihomoReady()
         await completeCoreInitialization(logLevel)
       })()
@@ -765,6 +801,14 @@ async function handleServiceCoreEvent(event: ServiceCoreEvent): Promise<void> {
         const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
         appendAppLog(`[Manager]: start service core streams failed: ${errorStr}\n`).catch(() => {})
       })
+      break
+    case 'controller_ready':
+      await appendAppLog(`[Manager]: Controller ready event received\n`)
+      controllerReadyReceived = true
+      if (controllerReadyResolve) {
+        controllerReadyResolve()
+        controllerReadyResolve = null
+      }
       break
     case 'takeover':
     case 'ready':

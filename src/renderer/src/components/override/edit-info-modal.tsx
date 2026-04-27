@@ -27,9 +27,10 @@ const EditInfoModal: React.FC<Props> = (props) => {
       if (item.id) {
         await restartCore()
       }
-      onClose()
     } catch (e) {
       alert(e)
+    } finally {
+      onClose()
     }
   }
 

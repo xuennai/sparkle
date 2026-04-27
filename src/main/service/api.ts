@@ -297,6 +297,7 @@ export interface ServiceCoreLaunchProfile {
 export type ServiceCoreEventType =
   | 'starting'
   | 'started'
+  | 'controller_ready'
   | 'stopping'
   | 'stopped'
   | 'exited'
