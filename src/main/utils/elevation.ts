@@ -1,4 +1,5 @@
-import { execFile } from 'child_process'
+import { execFile, execSync } from 'child_process'
+import { app } from 'electron'
 import { promisify } from 'util'
 
 const execFilePromise = promisify(execFile)
@@ -18,6 +19,62 @@ async function isRunningAsAdmin(): Promise<boolean> {
     isAdminCached = false
     return false
   }
+}
+
+export { isRunningAsAdmin }
+
+/**
+ * Synchronously check if the current process is running with administrator
+ * privileges on Windows. Uses `net session` which requires elevation.
+ * On non-Windows platforms, always returns true.
+ */
+export function isRunningAsAdminSync(): boolean {
+  if (process.platform !== 'win32') return true
+  try {
+    execSync('net session', { timeout: 2000, stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Relaunch the current application with administrator privileges on Windows.
+ * Uses PowerShell `Start-Process -Verb RunAs` to trigger the UAC prompt.
+ *
+ * The relaunched process will include `--admin-relaunch` in its argv so the
+ * new instance can detect it was spawned with admin rights.
+ *
+ * On non-Windows platforms, this function does nothing (returns immediately).
+ */
+export async function relaunchAsAdmin(): Promise<void> {
+  if (process.platform !== 'win32') return
+
+  const execPath = app.getPath('exe')
+  // Collect original CLI args, stripping any previous admin-relaunch flag
+  const originalArgs = process.argv
+    .slice(1)
+    .filter((a) => a !== '--admin-relaunch')
+  // Mark this as an admin relaunch so the new process can detect it
+  const args = [...originalArgs, '--admin-relaunch']
+
+  // Build a safe PowerShell command: use single quotes with escaping
+  const escapedExe = execPath.replace(/'/g, "''")
+  const psArgs = args
+    .map((arg) => {
+      const escaped = arg.replace(/'/g, "''")
+      return `'${escaped}'`
+    })
+    .join(',')
+
+  // Start a new elevated process (caller will exit shortly after)
+  await execFilePromise('powershell.exe', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    `Start-Process -FilePath '${escapedExe}' -ArgumentList @(${psArgs}) -Verb RunAs -WindowStyle Normal`
+  ])
 }
 
 function shellQuote(arg: string): string {

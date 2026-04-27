@@ -22,7 +22,9 @@ import {
   startService,
   stopService,
   initService,
-  restartService
+  restartService,
+  checkAdminStatus,
+  relaunchAsAdmin
 } from '@renderer/utils/ipc'
 import React, { useState, useEffect } from 'react'
 import ControllerSetting from '@renderer/components/mihomo/controller-setting'
@@ -130,6 +132,31 @@ const Mihomo: React.FC = () => {
 
   const handlePermissionModeChange = async (key: string): Promise<void> => {
     if (key === corePermissionMode) return
+
+    // Windows 下切换到系统服务模式时，检查是否为管理员权限
+    if (platform === 'win32' && key === 'service') {
+      try {
+        const isAdmin = await checkAdminStatus()
+        if (!isAdmin) {
+          const confirmed = confirm(
+            '系统服务模式需要管理员权限才能正常运行。\n\n' +
+              '是否以管理员身份重启应用？\n\n' +
+              '点击「确定」将重新启动应用并请求管理员权限。\n' +
+              '点击「取消」将停留在当前模式。'
+          )
+          if (confirmed) {
+            // 先保存配置，重启后恢复
+            await patchAppConfig({ corePermissionMode: 'service' })
+            // 以管理员身份重启应用
+            await relaunchAsAdmin()
+          }
+          return
+        }
+      } catch (e) {
+        // checkAdminStatus 失败时，允许用户继续切换
+        console.error('检查管理员权限失败', e)
+      }
+    }
 
     try {
       await patchAppConfig({ corePermissionMode: key as 'elevated' | 'service' })

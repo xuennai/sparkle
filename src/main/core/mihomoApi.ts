@@ -108,6 +108,17 @@ export const patchMihomoConfig = async (patch: Partial<ControllerConfigs>): Prom
   return await instance.patch('/configs', patch)
 }
 
+/**
+ * Hot-reload the entire Mihomo configuration via PUT /configs?force=true.
+ * This allows switching profiles without killing the mihomo process,
+ * thus preserving the Wintun adapter and route table.
+ * @param configPath - Absolute path to the new config.yaml file on disk
+ */
+export const mihomoReloadConfig = async (configPath: string): Promise<void> => {
+  const instance = await getAxios()
+  return await instance.put('/configs?force=true', { path: configPath })
+}
+
 export const mihomoCloseConnection = async (id: string): Promise<void> => {
   const instance = await getAxios()
   return await instance.delete(`/connections/${encodeURIComponent(id)}`)

@@ -1,5 +1,5 @@
 import { ChildProcess, spawn } from 'child_process'
-import { dataDir, coreLogPath, mihomoCorePath } from '../utils/dirs'
+import { dataDir, coreLogPath, mihomoCorePath, mihomoWorkConfigPath } from '../utils/dirs'
 import { generateProfile, getRuntimeConfig } from './factory'
 import {
   getAppConfig,
@@ -19,7 +19,8 @@ import {
   stopMihomoLogs,
   stopMihomoMemory,
   patchMihomoConfig,
-  mihomoGroups
+  mihomoGroups,
+  mihomoReloadConfig
 } from './mihomoApi'
 import { readFile, rm, writeFile } from 'fs/promises'
 import { mainWindow } from '..'
@@ -289,8 +290,12 @@ async function startCoreImpl(
     disableEmbedCA = false,
     disableSystemCA = false,
     disableNftables = false,
-    safePaths = []
+    safePaths: configuredSafePaths = []
   } = await getAppConfig()
+  // Always include dataDir() in SAFE_PATHS so that config files generated inside
+  // the work directory (e.g., config.yaml) can be hot-reloaded via PUT /configs
+  // even when they reside on a different drive/partition than the mihomo binary.
+  const safePaths = [...new Set([...configuredSafePaths, dataDir()])]
   await appendAppLog(`[Manager]: Config: corePermissionMode=${corePermissionMode}, coreStartupMode=${coreStartupMode}, core=${core}, diffWorkDir=${diffWorkDir}\n`)
 
   const controlledMihomoConfig = await getControledMihomoConfig()
@@ -994,6 +999,58 @@ function isServiceConnectionError(error: unknown): boolean {
     'connect ',
     'no such file'
   ].some((fragment) => message.toLowerCase().includes(fragment.toLowerCase()))
+}
+
+/**
+ * Hot-reload the Mihomo configuration via PUT /configs?force=true API.
+ *
+ * This is the preferred path for "switching subscriptions" or "updating profiles".
+ * Unlike restartCore(), it does NOT kill the mihomo process, so the Wintun adapter
+ * and system route table remain intact — resulting in near-zero downtime.
+ *
+ * Hot reload is only attempted when the core is in RUNNING state.
+ * If the core is not running, or if the API call fails, this function
+ * falls back gracefully to the full restartCore() path.
+ */
+export async function hotReloadCore(): Promise<void> {
+  const reqId = Math.random().toString(36).substring(7)
+  await appendAppLog(`[⚙️ hotReloadCore:${reqId}] ENTER - currentState=${coreState}\n`)
+
+  // Only hot-reload if core is running; otherwise fall back to full restart
+  if (coreState !== 'RUNNING') {
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Core not RUNNING (state=${coreState}), falling back to restartCore\n`)
+    return restartCore()
+  }
+
+  const t0 = Date.now()
+  try {
+    // 1. Generate the new profile and write config.yaml to disk
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Generating profile...\n`)
+    await generateProfile()
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Profile generated, elapsed: ${Date.now() - t0}ms\n`)
+
+    // 2. Resolve the config file path
+    const { diffWorkDir = false } = await getAppConfig()
+    const { current } = await getProfileConfig()
+    const configPath = mihomoWorkConfigPath(diffWorkDir ? current : 'work')
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Config path: ${configPath}\n`)
+
+    // 3. Send PUT /configs?force=true to Mihomo controller
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Sending hot-reload request...\n`)
+    await mihomoReloadConfig(configPath)
+    const elapsed = Date.now() - t0
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Hot reload SUCCESS, elapsed: ${elapsed}ms\n`)
+
+    // 4. Notify frontend to refresh groups and rules
+    mainWindow?.webContents.send('groupsUpdated')
+    mainWindow?.webContents.send('rulesUpdated')
+    ipcMain.emit('updateTrayMenu')
+  } catch (error) {
+    const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] FAILED: ${errorStr}, falling back to restartCore\n`)
+    // Fall back to the full restart path
+    return restartCore()
+  }
 }
 
 export async function restartCore(): Promise<void> {

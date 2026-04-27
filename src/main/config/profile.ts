@@ -2,7 +2,7 @@ import { getControledMihomoConfig } from './controledMihomo'
 import { mihomoProfileWorkDir, mihomoWorkDir, profileConfigPath, profilePath } from '../utils/dirs'
 import { addProfileUpdater, delProfileUpdater } from '../core/profileUpdater'
 import { readFile, writeFile, rm, mkdir } from 'fs/promises'
-import { restartCore } from '../core/manager'
+import { hotReloadCore } from '../core/manager'
 import { resetProfileCheckCache } from '../core/profile-check'
 import { getAppConfig } from './app'
 import { existsSync } from 'fs'
@@ -55,7 +55,7 @@ export async function changeCurrentProfile(id: string): Promise<void> {
   // Reset profile check cache since we're switching to a different config
   resetProfileCheckCache()
   try {
-    await restartCore()
+    await hotReloadCore()
   } catch (e) {
     config.current = current
     throw e
@@ -108,7 +108,7 @@ export async function removeProfileItem(id: string): Promise<void> {
     await rm(profilePath(id))
   }
   if (shouldRestart) {
-    await restartCore()
+    await hotReloadCore()
   }
   if (existsSync(mihomoProfileWorkDir(id))) {
     await rm(mihomoProfileWorkDir(id), { recursive: true })
@@ -311,7 +311,7 @@ export async function setProfileStr(id: string, content: string): Promise<void> 
   if (current === id) {
     // Reset profile check cache since config content changed
     resetProfileCheckCache()
-    await restartCore()
+    await hotReloadCore()
   }
 }
 

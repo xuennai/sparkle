@@ -11,7 +11,7 @@ import {
   powerMonitor,
   ipcMain
 } from 'electron'
-import { addOverrideItem, addProfileItem, getAppConfig, patchControledMihomoConfig } from './config'
+import { addOverrideItem, addProfileItem, getAppConfig, patchAppConfig, patchControledMihomoConfig } from './config'
 import { quitWithoutCore, startCore, stopCore } from './core/manager'
 import { disableSysProxySync, triggerSysProxy } from './sys/sysproxy'
 import icon from '../../resources/icon.png?asset'
@@ -31,6 +31,7 @@ import { showFloatingWindow } from './resolve/floatingWindow'
 import iconv from 'iconv-lite'
 import { getAppConfigSync } from './config/app'
 import { getUserAgent } from './utils/userAgent'
+import { isRunningAsAdmin, relaunchAsAdmin } from './utils/elevation'
 
 let quitTimeout: NodeJS.Timeout | null = null
 export let mainWindow: BrowserWindow | null = null
@@ -300,6 +301,43 @@ app.whenReady().then(async () => {
   const appConfig = await getAppConfig()
   const { showFloatingWindow: showFloating = false, disableTray = false } = appConfig
   registerIpcMainHandlers()
+
+  // Windows 服务模式权限检查：如果配置为系统服务模式但未以管理员权限运行，弹出提权提示
+  if (
+    process.platform === 'win32' &&
+    !is.dev &&
+    appConfig.corePermissionMode === 'service' &&
+    !process.argv.includes('--admin-relaunch')
+  ) {
+    const isAdmin = await isRunningAsAdmin()
+    if (!isAdmin) {
+      const result = dialog.showMessageBoxSync({
+        type: 'warning',
+        title: '需要管理员权限',
+        message: '系统服务模式需要管理员权限才能运行',
+        detail:
+          '当前应用未以管理员权限运行，Sparkle 服务无法正常启动。\n\n' +
+          '选择「以管理员身份重启」后，应用将重新以管理员权限启动，届时可正常使用系统服务模式。',
+        buttons: ['以管理员身份重启', '切换到直接运行模式', '退出应用'],
+        defaultId: 0,
+        cancelId: 2
+      })
+
+      if (result === 0) {
+        // 用户选择以管理员身份重启
+        await relaunchAsAdmin()
+        app.quit()
+        return
+      } else if (result === 1) {
+        // 用户选择切换到直接运行模式
+        await patchAppConfig({ corePermissionMode: 'elevated' })
+      } else {
+        // 用户选择退出
+        app.quit()
+        return
+      }
+    }
+  }
 
   const createWindowPromise = createWindow(appConfig)
 
