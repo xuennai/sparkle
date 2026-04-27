@@ -7,7 +7,7 @@ interface SiderSwitchProps extends SwitchProps {
 }
 
 const BorderSwitch: React.FC<SiderSwitchProps> = (props) => {
-  const { isShowBorder = false, classNames, ...switchProps } = props
+  const { isShowBorder = false, classNames, isSelected = false, ...switchProps } = props
 
   return (
     <Switch
@@ -21,6 +21,7 @@ const BorderSwitch: React.FC<SiderSwitchProps> = (props) => {
         ...classNames
       }}
       size="sm"
+      isSelected={isSelected}
       {...switchProps}
     />
   )

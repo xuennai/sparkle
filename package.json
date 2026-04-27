@@ -106,14 +106,20 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "electron"
+      "electron",
+      "koffi"
     ],
     "patchedDependencies": {
       "vite-plugin-monaco-editor@1.1.0": "patches/vite-plugin-monaco-editor@1.1.0.patch"
     },
     "overrides": {
       "vite": "npm:rolldown-vite@^7.3.1"
-    }
+    },
+    "ignoredBuiltDependencies": [
+      "@heroui/shared-utils",
+      "esbuild",
+      "meta-json-schema"
+    ]
   },
   "packageManager": "pnpm@10.15.0"
 }

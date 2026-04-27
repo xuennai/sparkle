@@ -34,7 +34,8 @@ function getHeaderValue(config: AxiosRequestConfig, name: string): string {
     return String(headers.get(name) || headers.get(name.toLowerCase()) || '')
   }
 
-  return String(headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()] || '')
+  const h = headers as Record<string, unknown>
+  return String(h[name] || h[name.toLowerCase()] || h[name.toUpperCase()] || '')
 }
 
 function shouldUseJsonEncoding(config: AxiosRequestConfig): boolean {
@@ -600,7 +601,12 @@ export const startCore = async (
   profile?: ServiceCoreLaunchProfile
 ): Promise<Record<string, unknown>> => {
   const instance = getServiceAxios()
-  return await instance.post('/core/start', profile)
+  // Core startup may take longer than the default 15s instance timeout
+  // (e.g., service needs to spawn mihomo, initialize provider, wait for ready).
+  // Use a per-request timeout of 60s to allow ample time for startup to complete.
+  return await instance.post('/core/start', profile, {
+    timeout: 60000
+  })
 }
 
 export const stopCore = async (): Promise<Record<string, unknown>> => {

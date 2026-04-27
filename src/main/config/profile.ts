@@ -3,6 +3,7 @@ import { mihomoProfileWorkDir, mihomoWorkDir, profileConfigPath, profilePath } f
 import { addProfileUpdater, delProfileUpdater } from '../core/profileUpdater'
 import { readFile, writeFile, rm, mkdir } from 'fs/promises'
 import { restartCore } from '../core/manager'
+import { resetProfileCheckCache } from '../core/profile-check'
 import { getAppConfig } from './app'
 import { existsSync } from 'fs'
 import axios, { AxiosResponse } from 'axios'
@@ -51,6 +52,8 @@ export async function changeCurrentProfile(id: string): Promise<void> {
   const current = config.current
   config.current = id
   await setProfileConfig(config)
+  // Reset profile check cache since we're switching to a different config
+  resetProfileCheckCache()
   try {
     await restartCore()
   } catch (e) {
@@ -128,7 +131,7 @@ export async function createProfile(item: Partial<ProfileItem>): Promise<Profile
     fingerprint: item.fingerprint,
     ua: item.ua,
     verify: item.verify ?? false,
-    autoUpdate: item.autoUpdate ?? true,
+    autoUpdate: item.autoUpdate ?? false,
     substore: item.substore || false,
     interval: item.interval || 0,
     override: item.override || [],
@@ -305,7 +308,11 @@ export async function getProfileParseStr(id: string | undefined): Promise<string
 export async function setProfileStr(id: string, content: string): Promise<void> {
   const { current } = await getProfileConfig()
   await writeFile(profilePath(id), content, 'utf-8')
-  if (current === id) await restartCore()
+  if (current === id) {
+    // Reset profile check cache since config content changed
+    resetProfileCheckCache()
+    await restartCore()
+  }
 }
 
 export async function getProfile(id: string | undefined): Promise<MihomoConfig> {
@@ -332,7 +339,9 @@ function parseSubinfo(str: string): SubscriptionUserInfo {
   const obj = {} as SubscriptionUserInfo
   parts.forEach((part) => {
     const [key, value] = part.trim().split('=')
-    obj[key] = parseInt(value)
+    if (key && value !== undefined) {
+      obj[key as keyof SubscriptionUserInfo] = parseInt(value) || 0
+    }
   })
   return obj
 }

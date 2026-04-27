@@ -1,7 +1,6 @@
 import axios, { AxiosRequestConfig, CancelTokenSource } from 'axios'
-import { parseYaml } from '../utils/yaml'
 import { app, shell } from 'electron'
-import { getAppConfig, getControledMihomoConfig } from '../config'
+import { getControledMihomoConfig } from '../config'
 import { dataDir, exeDir, exePath, isPortable, resourcesFilesDir } from '../utils/dirs'
 import { copyFile, rm, writeFile, readFile } from 'fs/promises'
 import path from 'path'
@@ -17,30 +16,8 @@ import { appendAppLog } from '../utils/log'
 let downloadCancelToken: CancelTokenSource | null = null
 
 export async function checkUpdate(): Promise<AppVersion | undefined> {
-  const { 'mixed-port': mixedPort = 7890 } = await getControledMihomoConfig()
-  const { updateChannel = 'stable' } = await getAppConfig()
-  let url = 'https://github.com/xishang0128/sparkle/releases/latest/download/latest.yml'
-  if (updateChannel == 'beta') {
-    url = 'https://github.com/xishang0128/sparkle/releases/download/pre-release/latest.yml'
-  }
-  const res = await axios.get(url, {
-    headers: { 'Content-Type': 'application/octet-stream' },
-    ...(mixedPort != 0 && {
-      proxy: {
-        protocol: 'http',
-        host: '127.0.0.1',
-        port: mixedPort
-      }
-    }),
-    responseType: 'text'
-  })
-  const latest = parseYaml<AppVersion>(res.data)
-  const currentVersion = app.getVersion()
-  if (latest.version !== currentVersion) {
-    return latest
-  } else {
-    return undefined
-  }
+  // GitHub update check disabled
+  return undefined
 }
 
 async function stopServiceForPortableUpdate(): Promise<void> {
@@ -64,18 +41,18 @@ export async function downloadAndInstallUpdate(version: string): Promise<void> {
     releaseTag = 'pre-release'
   }
   const baseUrl = `https://github.com/xishang0128/sparkle/releases/download/${releaseTag}/`
-  const fileMap = {
+  const fileMap: Record<string, string | undefined> = {
     'win32-x64': `sparkle-windows-${version}-x64-setup.exe`,
     'win32-arm64': `sparkle-windows-${version}-arm64-setup.exe`,
     'darwin-x64': `sparkle-macos-${version}-x64.pkg`,
     'darwin-arm64': `sparkle-macos-${version}-arm64.pkg`
   }
   let file = fileMap[`${process.platform}-${process.arch}`]
-  if (isPortable()) {
-    file = file.replace('-setup.exe', '-portable.7z')
-  }
   if (!file) {
     throw new Error('不支持自动更新，请手动下载更新')
+  }
+  if (isPortable()) {
+    file = file.replace('-setup.exe', '-portable.7z')
   }
   downloadCancelToken = axios.CancelToken.source()
 

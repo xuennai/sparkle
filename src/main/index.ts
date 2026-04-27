@@ -554,8 +554,24 @@ export async function createWindow(appConfig?: AppConfig): Promise<void> {
         await scheduleLightweightMode()
       }
     })
-    mainWindow.webContents.on('did-fail-load', () => {
-      mainWindow?.webContents.reload()
+    // did-fail-load 重试保护：避免因代理核心启动修改系统代理导致无限重载循环
+    // 当 mihomo 核心启动时，系统代理变更会使 Chromium 触发 ERR_NETWORK_CHANGED，
+    // 导致页面加载失败。这里限制最大重试次数，避免无限循环。
+    let failLoadRetryCount = 0
+    const MAX_FAIL_LOAD_RETRIES = 3
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+      if (failLoadRetryCount < MAX_FAIL_LOAD_RETRIES) {
+        failLoadRetryCount++
+        mainWindow?.webContents.reload()
+      } else {
+        console.error(
+          `[Main]: did-fail-load exceeded max retries (${MAX_FAIL_LOAD_RETRIES}), errorCode: ${errorCode}, description: ${errorDescription}`
+        )
+      }
+    })
+    // 页面加载成功后重置重试计数
+    mainWindow.webContents.on('did-finish-load', () => {
+      failLoadRetryCount = 0
     })
 
     mainWindow.on('close', async (event) => {

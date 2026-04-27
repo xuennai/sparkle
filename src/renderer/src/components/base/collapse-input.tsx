@@ -7,7 +7,7 @@ interface CollapseInputProps extends InputProps {
 }
 
 const CollapseInput: React.FC<CollapseInputProps> = (props) => {
-  const { title, ...inputProps } = props
+  const { title, value = '', ...inputProps } = props
   const inputRef = useRef<HTMLInputElement>(null)
 
   return (
@@ -15,6 +15,7 @@ const CollapseInput: React.FC<CollapseInputProps> = (props) => {
       <Input
         size="sm"
         ref={inputRef}
+        value={value}
         {...inputProps}
         style={{ paddingInlineEnd: 0 }}
         classNames={{

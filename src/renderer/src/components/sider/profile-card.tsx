@@ -207,7 +207,7 @@ const ProfileCard: React.FC<Props> = (props) => {
               </div>
             )}
             {extra && (
-              <Meter maxValue={total} value={usage}>
+              <Meter aria-label="流量使用情况" maxValue={total} value={usage}>
                 <Meter.Track
                   className={
                     match
