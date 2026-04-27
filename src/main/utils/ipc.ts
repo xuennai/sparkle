@@ -133,7 +133,6 @@ import { closeFloatingWindow, showContextMenu, showFloatingWindow } from '../res
 import { getAppName } from './appName'
 import { getUserAgent } from './userAgent'
 import { appendAppLog, clearCachedMihomoLogs, getCachedMihomoLogs } from './log'
-import { isRunningAsAdmin, relaunchAsAdmin } from './elevation'
 
 function ipcErrorWrapper<T>( // eslint-disable-next-line @typescript-eslint/no-explicit-any
   fn: (...args: any[]) => Promise<T> // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -373,21 +372,5 @@ export function registerIpcMainHandlers(): void {
   ipcMain.handle('startNetworkDetection', ipcErrorWrapper(startNetworkDetection))
   ipcMain.handle('stopNetworkDetection', ipcErrorWrapper(stopNetworkDetection))
   ipcMain.handle('quitApp', () => app.quit())
-  ipcMain.handle('checkAdminStatus', async () => {
-    if (process.platform !== 'win32') return true
-    return await isRunningAsAdmin()
-  })
 
-  ipcMain.handle('relaunchAsAdmin', async () => {
-    if (process.platform !== 'win32') return
-    try {
-      await relaunchAsAdmin()
-      setNotQuitDialog()
-      app.quit()
-    } catch (error) {
-      throw new Error(
-        `以管理员身份重启失败：${error instanceof Error ? error.message : String(error)}`
-      )
-    }
-  })
 }

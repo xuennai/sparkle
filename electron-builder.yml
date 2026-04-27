@@ -25,6 +25,7 @@ protocols:
     - 'mihomo'
     - 'sparkle'
 win:
+  requestedExecutionLevel: requireAdministrator
   target:
     - nsis
     - 7z

@@ -608,15 +608,6 @@ export async function copyEnv(
 ): Promise<void> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('copyEnv', type))
 }
-
-export async function checkAdminStatus(): Promise<boolean> {
-  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('checkAdminStatus'))
-}
-
-export async function relaunchAsAdmin(): Promise<void> {
-  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('relaunchAsAdmin'))
-}
-
 async function alert<T>(msg: T): Promise<void> {
   const msgStr = typeof msg === 'string' ? msg : JSON.stringify(msg)
   return await window.electron.ipcRenderer.invoke('alert', msgStr)

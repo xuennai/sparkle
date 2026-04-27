@@ -82,6 +82,16 @@
 !macro customInit
   StrCpy $sparkleServiceWasRunning "false"
   !insertmacro StopSparkleServiceIfRunning
+
+  ; 覆盖安装：杀死正在运行的 Sparkle GUI 进程，释放文件锁
+  nsExec::ExecToStack 'taskkill /f /im Sparkle.exe 2>NUL'
+  Pop $R2
+  nsExec::ExecToStack 'taskkill /f /im Sparkle* 2>NUL'
+  Pop $R2
+
+  ; 覆盖安装：删除旧版注册表项，让安装器跳过"卸载旧版"流程，直接覆盖写入
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\sparkle.app"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\sparkle.app"
 !macroend
 
 !macro customInstall

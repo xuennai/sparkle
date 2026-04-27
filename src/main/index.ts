@@ -11,7 +11,7 @@ import {
   powerMonitor,
   ipcMain
 } from 'electron'
-import { addOverrideItem, addProfileItem, getAppConfig, patchAppConfig, patchControledMihomoConfig } from './config'
+import { addOverrideItem, addProfileItem, getAppConfig, patchControledMihomoConfig } from './config'
 import { quitWithoutCore, startCore, stopCore } from './core/manager'
 import { disableSysProxySync, triggerSysProxy } from './sys/sysproxy'
 import icon from '../../resources/icon.png?asset'
@@ -20,18 +20,13 @@ import { createApplicationMenu } from './resolve/menu'
 import { init } from './utils/init'
 import { join } from 'path'
 import { initShortcut } from './resolve/shortcut'
-import { execSync, spawn } from 'child_process'
-import { createElevateTaskSync } from './sys/misc'
+import { spawn } from 'child_process'
 import { initProfileUpdater } from './core/profileUpdater'
-import { existsSync, writeFileSync } from 'fs'
-import { exePath, taskDir } from './utils/dirs'
-import path from 'path'
+import { exePath } from './utils/dirs'
 import { startMonitor } from './resolve/trafficMonitor'
 import { showFloatingWindow } from './resolve/floatingWindow'
-import iconv from 'iconv-lite'
 import { getAppConfigSync } from './config/app'
 import { getUserAgent } from './utils/userAgent'
-import { isRunningAsAdmin, relaunchAsAdmin } from './utils/elevation'
 
 let quitTimeout: NodeJS.Timeout | null = null
 export let mainWindow: BrowserWindow | null = null
@@ -74,45 +69,6 @@ const syncConfig = getAppConfigSync()
 function exitApp(): void {
   disableSysProxySync()
   app.exit()
-}
-
-if (
-  process.platform === 'win32' &&
-  !is.dev &&
-  !process.argv.includes('noadmin') &&
-  syncConfig.corePermissionMode !== 'service'
-) {
-  try {
-    createElevateTaskSync()
-  } catch (createError) {
-    try {
-      if (process.argv.slice(1).length > 0) {
-        writeFileSync(path.join(taskDir(), 'param.txt'), process.argv.slice(1).join(' '))
-      } else {
-        writeFileSync(path.join(taskDir(), 'param.txt'), 'empty')
-      }
-      if (!existsSync(path.join(taskDir(), 'sparkle-run.exe'))) {
-        throw new Error('sparkle-run.exe not found')
-      } else {
-        execSync('%SystemRoot%\\System32\\schtasks.exe /run /tn sparkle-run')
-      }
-    } catch (e) {
-      let createErrorStr = `${createError}`
-      let eStr = `${e}`
-      try {
-        createErrorStr = iconv.decode((createError as { stderr: Buffer }).stderr, 'gbk')
-        eStr = iconv.decode((e as { stderr: Buffer }).stderr, 'gbk')
-      } catch {
-        // ignore
-      }
-      dialog.showErrorBox(
-        '首次启动请以管理员权限运行',
-        `首次启动请以管理员权限运行\n${createErrorStr}\n${eStr}`
-      )
-    } finally {
-      exitApp()
-    }
-  }
 }
 
 const shouldDisableTunInDev = process.platform === 'win32' && is.dev
@@ -301,43 +257,6 @@ app.whenReady().then(async () => {
   const appConfig = await getAppConfig()
   const { showFloatingWindow: showFloating = false, disableTray = false } = appConfig
   registerIpcMainHandlers()
-
-  // Windows 服务模式权限检查：如果配置为系统服务模式但未以管理员权限运行，弹出提权提示
-  if (
-    process.platform === 'win32' &&
-    !is.dev &&
-    appConfig.corePermissionMode === 'service' &&
-    !process.argv.includes('--admin-relaunch')
-  ) {
-    const isAdmin = await isRunningAsAdmin()
-    if (!isAdmin) {
-      const result = dialog.showMessageBoxSync({
-        type: 'warning',
-        title: '需要管理员权限',
-        message: '系统服务模式需要管理员权限才能运行',
-        detail:
-          '当前应用未以管理员权限运行，Sparkle 服务无法正常启动。\n\n' +
-          '选择「以管理员身份重启」后，应用将重新以管理员权限启动，届时可正常使用系统服务模式。',
-        buttons: ['以管理员身份重启', '切换到直接运行模式', '退出应用'],
-        defaultId: 0,
-        cancelId: 2
-      })
-
-      if (result === 0) {
-        // 用户选择以管理员身份重启
-        await relaunchAsAdmin()
-        app.quit()
-        return
-      } else if (result === 1) {
-        // 用户选择切换到直接运行模式
-        await patchAppConfig({ corePermissionMode: 'elevated' })
-      } else {
-        // 用户选择退出
-        app.quit()
-        return
-      }
-    }
-  }
 
   const createWindowPromise = createWindow(appConfig)
 
