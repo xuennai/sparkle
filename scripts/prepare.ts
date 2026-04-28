@@ -206,7 +206,7 @@ async function resolveSidecar(binInfo) {
     }
   } catch (err) {
     // 需要删除文件
-    fs.rmSync(sidecarPath)
+    fs.rmSync(sidecarPath, { force: true })
     throw err
   } finally {
     fs.rmSync(tempDir, { recursive: true })

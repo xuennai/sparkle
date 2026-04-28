@@ -103,14 +103,14 @@ const ProfileItem: React.FC<Props> = (props) => {
       } as MenuItem,
       ...(info.type === 'remote' && info.url
         ? [
-            {
-              key: 'qrcode',
-              label: '二维码',
-              showDivider: true,
-              color: 'default',
-              className: ''
-            } as MenuItem
-          ]
+          {
+            key: 'qrcode',
+            label: '二维码',
+            showDivider: true,
+            color: 'default',
+            className: ''
+          } as MenuItem
+        ]
         : []),
       {
         key: 'delete',
@@ -218,16 +218,27 @@ const ProfileItem: React.FC<Props> = (props) => {
       )}
       <Card
         as="div"
-        fullWidth
         isPressable
-        onPress={() => {
+        fullWidth
+        role="button"
+        tabIndex={0}
+        onClick={() => {
           if (disableSelect || switching) return
           setSelecting(true)
           onClick().finally(() => {
             setSelecting(false)
           })
         }}
-        className={`${isCurrent ? 'bg-primary' : ''} ${selecting ? 'blur-sm' : ''}`}
+        onKeyDown={(e: React.KeyboardEvent) => {
+          if ((e.key === 'Enter' || e.key === ' ') && !disableSelect && !switching) {
+            e.preventDefault()
+            setSelecting(true)
+            onClick().finally(() => {
+              setSelecting(false)
+            })
+          }
+        }}
+        className={`cursor-pointer data-[pressed=true]:!scale-[0.995] ${isCurrent ? 'bg-primary' : ''} ${selecting ? 'blur-sm' : ''}`}
       >
         <div {...attributes} {...listeners} className="w-full h-full">
           <CardBody className="pb-1">

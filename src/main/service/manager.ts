@@ -304,13 +304,16 @@ export async function restartService(): Promise<void> {
   }
 }
 
-export async function serviceStatus(): Promise<
+export async function serviceStatus(
+  options?: { timeout?: number }
+): Promise<
   'running' | 'stopped' | 'not-installed' | 'paused' | 'unknown' | 'need-init'
 > {
   const execPath = servicePath()
+  const timeout = options?.timeout ?? 10000
 
   try {
-    const { stderr } = await execFilePromise(execPath, ['service', 'status'])
+    const { stderr } = await execFilePromise(execPath, ['service', 'status'], { timeout })
     if (stderr.includes('the service is not installed')) {
       return 'not-installed'
     } else {
@@ -342,8 +345,23 @@ export async function serviceStatus(): Promise<
       }
     }
   } catch (error) {
+    // 超时或进程异常：服务大概率已不存在或不可用
+    const execError = error as { code?: string; killed?: boolean; signal?: string }
+    if (execError.code === 'ETIMEDOUT' || execError.killed || execError.signal) {
+      return 'not-installed'
+    }
     return 'unknown'
   }
+}
+
+/**
+ * 快速检查服务状态，用于卸载/停止后的轻量检测。
+ * 超时更短（3s），超时直接视为服务已不存在。
+ */
+export async function quickServiceStatus(): Promise<
+  'running' | 'stopped' | 'not-installed' | 'paused' | 'unknown' | 'need-init'
+> {
+  return serviceStatus({ timeout: 3000 })
 }
 
 export async function testServiceConnection(): Promise<boolean> {

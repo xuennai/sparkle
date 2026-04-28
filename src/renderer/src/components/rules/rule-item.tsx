@@ -1,6 +1,7 @@
 import { Card, CardBody, Switch, Chip } from '@heroui/react'
-import React, { useEffect, useState } from 'react'
-import { mihomoRulesDisable } from '@renderer/utils/ipc'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { mutate } from 'swr'
+import { toggleProfileRuleDisable } from '@renderer/utils/ipc'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
@@ -20,6 +21,8 @@ const isZeroTime = (at: string): boolean => {
 
 const RuleItem: React.FC<Props> = ({ rule, index }) => {
   const [isEnabled, setIsEnabled] = useState(!rule.extra.disabled)
+  const [loading, setLoading] = useState(false)
+  const toggleVersionRef = useRef(0)
 
   const { hitCount, hitAt, missCount, missAt } = rule.extra
 
@@ -32,14 +35,31 @@ const RuleItem: React.FC<Props> = ({ rule, index }) => {
     setIsEnabled(!rule.extra.disabled)
   }, [rule, rule.extra.disabled])
 
-  const handleToggle = async (v: boolean): Promise<void> => {
-    setIsEnabled(v)
-    try {
-      await mihomoRulesDisable({ [index]: !v })
-    } catch {
-      setIsEnabled(!v)
-    }
-  }
+  const handleToggle = useCallback(
+    async (v: boolean): Promise<void> => {
+      if (loading) return
+      setLoading(true)
+      const currentVersion = ++toggleVersionRef.current
+      setIsEnabled(v)
+      try {
+        // Persist disabled rule state to profile config + apply to running kernel
+        await toggleProfileRuleDisable(index, !v)
+        // Re-fetch rules to keep SWR cache in sync with mihomo state
+        if (currentVersion === toggleVersionRef.current) {
+          mutate('mihomoRules')
+        }
+      } catch {
+        if (currentVersion === toggleVersionRef.current) {
+          setIsEnabled(!v)
+        }
+      } finally {
+        if (currentVersion === toggleVersionRef.current) {
+          setLoading(false)
+        }
+      }
+    },
+    [index, loading]
+  )
 
   return (
     <div className={`w-full px-2 pb-2 ${index === 0 ? 'pt-2' : ''}`}>
@@ -47,7 +67,13 @@ const RuleItem: React.FC<Props> = ({ rule, index }) => {
         <CardBody className="w-full">
           <div className="flex justify-between text-ellipsis whitespace-nowrap overflow-hidden">
             {rule.payload || 'Match'}
-            <Switch size="sm" isSelected={isEnabled} onValueChange={handleToggle} />
+            <Switch
+              size="sm"
+              isSelected={isEnabled}
+              isDisabled={loading}
+              onValueChange={handleToggle}
+              aria-label={rule.payload ? `切换规则 ${rule.payload} 的启用状态` : '切换规则的启用状态'}
+            />
           </div>
           <div className="flex justify-between mt-1">
             <div className="flex justify-start text-foreground-500">

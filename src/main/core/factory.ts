@@ -28,6 +28,78 @@ let runtimeConfigStr: string,
   overrideProfileStr: string,
   runtimeConfig: MihomoConfig
 
+let _disabledRuleIndices: number[] = []
+
+/**
+ * 更新 runtimeConfigStr，根据当前内存中的禁用规则索引过滤 rules 数组。
+ * runtimeConfig.rules 会临时过滤再恢复，保证原始数据不丢失。
+ */
+function _refreshRuntimeConfigStr(): void {
+  if (!runtimeConfig?.rules) return
+  const rules = runtimeConfig.rules as string[]
+  if (_disabledRuleIndices.length > 0) {
+    const disabledSet = new Set(_disabledRuleIndices)
+    const allRules = [...rules]
+    ;(runtimeConfig as any).rules = rules.filter((_, i) => !disabledSet.has(i))
+    runtimeConfigStr = stringifyYaml(runtimeConfig)
+    ;(runtimeConfig as any).rules = allRules // 恢复原始 rules
+  } else {
+    runtimeConfigStr = stringifyYaml(runtimeConfig)
+  }
+}
+
+/**
+ * 切换规则的禁用状态（仅内存，不持久化）。
+ * 同时更新运行时配置字符串，让配置查看器即时反映变化。
+ */
+export function setDisabledRule(ruleIndex: number, disable: boolean): void {
+  if (disable) {
+    if (!_disabledRuleIndices.includes(ruleIndex)) {
+      _disabledRuleIndices.push(ruleIndex)
+    }
+  } else {
+    _disabledRuleIndices = _disabledRuleIndices.filter((i) => i !== ruleIndex)
+  }
+  _refreshRuntimeConfigStr()
+}
+
+/**
+ * 向运行时配置中注入 TUN 直连绕过规则。
+ *
+ * 在 TUN 模式下，系统会劫持所有流量送入 Mihomo 内核。当客户端自身
+ * （如 Sparkle）发起直连请求（如订阅更新且未勾选代理）时，该请求也
+ * 会被送入 TUN 虚拟网卡，导致可能的路由死循环或超时。
+ *
+ * 此函数注入一条 AND 复合规则到 rules 数组最顶部：
+ *   AND,((IN-TYPE,TUN),(PROCESS-NAME,客户端进程名)),DIRECT
+ *
+ * 语义：
+ *   - 流量从 TUN 入站 AND 进程名为客户端自身 → 强制直连（DIRECT）
+ *   - 当客户端显式使用代理（127.0.0.1:mixedPort）时，流量从 MIXED/HTTP
+ *     端口入站，不匹配 IN-TYPE,TUN，因此不走此规则，正常代理出海。
+ */
+function injectTunBypassRule(profile: MihomoConfig): void {
+  const execPath = process.execPath
+  const processName = execPath.split(/[\\/]/).pop()
+  if (!processName) return
+
+  const bypassRule = `AND,((IN-TYPE,TUN),(PROCESS-NAME,${processName})),DIRECT`
+
+  // 使用局部变量操作 rules 数组，避免空元组类型推断问题
+  const rules = (Array.isArray(profile.rules) ? profile.rules : []) as string[]
+
+  // 移除可能已存在的同类规则（防止重复添加）
+  const filtered = rules.filter(
+    (rule) => !(rule.includes('IN-TYPE,TUN') && rule.includes('PROCESS-NAME'))
+  )
+
+  // 注入到规则列表最顶部，确保最高匹配优先级
+  filtered.unshift(bypassRule)
+
+  // 将处理后的 rules 写回 profile（使用 as any 与已有代码风格一致）
+  ;(profile as any).rules = filtered
+}
+
 export async function generateProfile(): Promise<void> {
   const { current } = await getProfileConfig()
   const { diffWorkDir = false, controlDns = true, controlSniff = true } = await getAppConfig()
@@ -51,6 +123,12 @@ export async function generateProfile(): Promise<void> {
 
   await cleanProfile(profile, controlDns, controlSniff)
 
+  // 注入 TUN 直连绕过规则：当客户端自身流量从 TUN 入站时强制直连，
+  // 避免 TUN 模式劫持客户端发起的直连请求导致路由死循环或超时。
+  // 当客户端主动使用代理（127.0.0.1:mixedPort）时，流量走 MIXED 入口，
+  // 不会匹配此规则，正常走代理节点出海。
+  injectTunBypassRule(profile)
+
   runtimeConfig = profile
   runtimeConfigStr = stringifyYaml(profile)
   if (diffWorkDir) {
@@ -60,6 +138,9 @@ export async function generateProfile(): Promise<void> {
     diffWorkDir ? mihomoWorkConfigPath(current) : mihomoWorkConfigPath('work'),
     runtimeConfigStr
   )
+
+  // 写入磁盘后再根据内存中的禁用规则更新显示字符串
+  _refreshRuntimeConfigStr()
 }
 
 async function cleanProfile(

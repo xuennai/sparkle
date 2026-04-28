@@ -82,14 +82,14 @@ const OverrideItem: React.FC<Props> = (props) => {
       } as MenuItem,
       ...(info.type === 'remote' && info.url
         ? [
-            {
-              key: 'qrcode',
-              label: '二维码',
-              showDivider: false,
-              color: 'default',
-              className: ''
-            } as MenuItem
-          ]
+          {
+            key: 'qrcode',
+            label: '二维码',
+            showDivider: false,
+            color: 'default',
+            className: ''
+          } as MenuItem
+        ]
         : []),
       {
         key: 'exec-log',
@@ -202,11 +202,20 @@ const OverrideItem: React.FC<Props> = (props) => {
       {openLog && <ExecLogModal id={info.id} onClose={() => setOpenLog(false)} />}
       <Card
         as="div"
-        fullWidth
         isPressable
-        onPress={() => {
+        fullWidth
+        className="cursor-pointer data-[pressed=true]:!scale-[0.995]"
+        role="button"
+        tabIndex={0}
+        onClick={() => {
           if (disableOpen) return
           setOpenFileEditor(true)
+        }}
+        onKeyDown={(e: React.KeyboardEvent) => {
+          if ((e.key === 'Enter' || e.key === ' ') && !disableOpen) {
+            e.preventDefault()
+            setOpenFileEditor(true)
+          }
         }}
       >
         <div {...attributes} {...listeners} className="h-full w-full">
@@ -229,15 +238,15 @@ const OverrideItem: React.FC<Props> = (props) => {
                     color="default"
                     disabled={updating}
                     onPress={async () => {
-                    setUpdating(true)
-                    try {
-                      await addOverrideItem(info)
-                      await hotReloadCore()
-                    } catch (e) {
-                      alert(e)
-                    } finally {
-                      setUpdating(false)
-                    }
+                      setUpdating(true)
+                      try {
+                        await addOverrideItem(info)
+                        await hotReloadCore()
+                      } catch (e) {
+                        alert(e)
+                      } finally {
+                        setUpdating(false)
+                      }
                     }}
                   >
                     <IoMdRefresh

@@ -67,6 +67,7 @@
 .app-nodrag {
   -webkit-app-region: none;
 }
+
 .app-drag {
   -webkit-app-region: drag;
 }
@@ -91,7 +92,7 @@
   touch-action: pan-y;
 }
 
-.app-drag > .header {
+.app-drag>.header {
   width: auto;
   padding: 0;
   text-align: inherit;
@@ -163,4 +164,22 @@
   *::-webkit-scrollbar-thumb:hover {
     background: #c0c1c58f;
   }
+}
+
+@keyframes fade-in-slide {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.group-expand-enter {
+  animation: fade-in-slide 0.2s ease-out;
+}
+
+.group-flip {
+  will-change: transform;
 }

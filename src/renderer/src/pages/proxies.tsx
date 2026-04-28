@@ -10,7 +10,7 @@ import {
   mihomoProxyDelay
 } from '@renderer/utils/ipc'
 import { FaLocationCrosshairs } from 'react-icons/fa6'
-import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react'
 import { GroupedVirtuoso, GroupedVirtuosoHandle } from 'react-virtuoso'
 import ProxyItem from '@renderer/components/proxies/proxy-item'
 import ProxySettingModal from '@renderer/components/proxies/proxy-setting-modal'
@@ -18,6 +18,7 @@ import { IoIosArrowBack } from 'react-icons/io'
 import { MdDoubleArrow, MdOutlineSpeed, MdTune } from 'react-icons/md'
 import { useGroups } from '@renderer/hooks/use-groups'
 import CollapseInput from '@renderer/components/base/collapse-input'
+
 import { includesIgnoreCase } from '@renderer/utils/includes'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
 import { runDelayTestsWithConcurrency } from '@renderer/utils/delay-test'
@@ -62,6 +63,45 @@ const Proxies: React.FC = () => {
   const [searchValue, setSearchValue] = useState(Array(groups.length).fill(''))
   const [isSettingModalOpen, setIsSettingModalOpen] = useState(false)
   const virtuosoRef = useRef<GroupedVirtuosoHandle>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const prevGroupPositionsRef = useRef<number[]>([])
+  const shouldFlipRef = useRef(false)
+
+  useLayoutEffect(() => {
+    const items = containerRef.current?.querySelectorAll('[data-index]')
+    if (!items || items.length === 0) return
+
+    const newTops: number[] = []
+    items.forEach((el) => newTops.push(el.getBoundingClientRect().top))
+
+    if (shouldFlipRef.current && prevGroupPositionsRef.current.length > 0) {
+      shouldFlipRef.current = false
+      const maxLen = Math.min(items.length, prevGroupPositionsRef.current.length)
+      for (let i = 0; i < maxLen; i++) {
+        const oldTop = prevGroupPositionsRef.current[i]
+        const newTop = newTops[i]
+        if (oldTop !== newTop) {
+          const delta = oldTop - newTop
+          const htmlEl = items[i] as HTMLElement
+          htmlEl.style.transform = `translateY(${delta}px)`
+          htmlEl.style.transition = 'none'
+          htmlEl.style.willChange = 'transform'
+          requestAnimationFrame(() => {
+            htmlEl.style.transition = 'transform 0.25s ease'
+            htmlEl.style.transform = ''
+            const onEnd = () => {
+              htmlEl.style.transition = ''
+              htmlEl.style.willChange = ''
+              htmlEl.removeEventListener('transitionend', onEnd)
+            }
+            htmlEl.addEventListener('transitionend', onEnd)
+          })
+        }
+      }
+    }
+
+    prevGroupPositionsRef.current = newTops
+  })
 
   useEffect(() => {
     setIsOpen((prev) =>
@@ -204,9 +244,10 @@ const Proxies: React.FC = () => {
   }, [])
 
   const toggleOpen = useCallback((index: number) => {
+    shouldFlipRef.current = true
     setIsOpen((prev) => {
       const newOpen = [...prev]
-      newOpen[index] = !prev[index]
+      newOpen[index] = !newOpen[index]
       return newOpen
     })
   }, [])
@@ -272,15 +313,35 @@ const Proxies: React.FC = () => {
       }
       return groups[index] ? (
         <div
-          className={`w-full pt-2 ${index === groupCounts.length - 1 && !isOpen[index] ? 'pb-2' : ''} px-2`}
+          key={groups[index]?.name}
+          data-group-index={index}
+          className={`group-flip w-full pt-2 ${index === groupCounts.length - 1 && !isOpen[index] ? 'pb-2' : ''} px-2`}
         >
-          <Card as="div" isPressable fullWidth onPress={() => toggleOpen(index)}>
+          <Card
+            as="div"
+            isPressable
+            fullWidth
+            className="cursor-pointer data-[pressed=true]:!scale-[0.995]"
+            role="button"
+            tabIndex={0}
+            onClick={() => toggleOpen(index)}
+            onKeyDown={(e: React.KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                toggleOpen(index)
+              }
+            }}
+          >
             <CardBody className="w-full h-14">
               <div className="flex justify-between h-full">
                 <div className="flex text-ellipsis overflow-hidden whitespace-nowrap h-full">
                   {groups[index].icon ? (
-                    <Avatar className="bg-transparent mr-2 w-8 h-8" size="sm">
+                    <Avatar
+                      className="mr-2 h-8 w-8 shrink-0 bg-transparent overflow-visible! rounded-none!"
+                      size="sm"
+                    >
                       <Avatar.Image
+                        className="object-contain"
                         src={
                           groups[index].icon.startsWith('<svg')
                             ? `data:image/svg+xml;utf8,${groups[index].icon}`
@@ -409,7 +470,7 @@ const Proxies: React.FC = () => {
               ? { gridTemplateColumns: `repeat(${proxyCols}, minmax(0, 1fr))` }
               : {}
           }
-          className={`grid ${proxyCols === 'auto' ? 'sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5' : ''} ${groupIndex === groupCounts.length - 1 && innerIndex === groupCounts[groupIndex] - 1 ? 'pb-2' : ''} gap-2 pt-2 mx-2`}
+          className={`group-expand-enter grid ${proxyCols === 'auto' ? 'sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5' : ''} ${groupIndex === groupCounts.length - 1 && innerIndex === groupCounts[groupIndex] - 1 ? 'pb-2' : ''} gap-2 pt-2 mx-2`}
         >
           {items}
         </div>
@@ -455,7 +516,7 @@ const Proxies: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="h-[calc(100vh-50px)]">
+        <div ref={containerRef} className="h-[calc(100vh-50px)] virtuoso-container">
           <GroupedVirtuoso
             ref={virtuosoRef}
             groupCounts={groupCounts}

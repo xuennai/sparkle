@@ -32,12 +32,13 @@ const EditInfoModal: React.FC<Props> = (props) => {
       }
 
       await updateProfileItem(itemToSave)
+      // 先关闭弹窗，再触发热重载，避免 hotReloadCore 卡住时弹窗无法关闭
+      onClose()
       if (item.id && isCurrent) {
         await hotReloadCore()
       }
     } catch (e) {
       alert(e)
-    } finally {
       onClose()
     }
   }

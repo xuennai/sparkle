@@ -177,6 +177,19 @@ const ProfileCard: React.FC<Props> = (props) => {
                 )}
               </div>
             )}
+            {info.type === 'remote' && (
+              <div className={`mt-1 flex gap-2 ${match ? 'text-primary-foreground/70' : 'text-foreground/50'}`}>
+                {info.fingerprint && (
+                  <Chip
+                    size="sm"
+                    variant="flat"
+                    className={`h-5 text-[11px] ${match ? 'bg-primary-foreground/10 text-primary-foreground' : ''}`}
+                  >
+                    指纹验证
+                  </Chip>
+                )}
+              </div>
+            )}
           </CardBody>
           <CardFooter className="pt-0">
             {info.type === 'remote' && !extra && (

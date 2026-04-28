@@ -97,6 +97,12 @@ export async function mihomoRulesDisable(rules: Record<string, boolean>): Promis
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('mihomoRulesDisable', rules))
 }
 
+export async function toggleProfileRuleDisable(ruleIndex: number, disable: boolean): Promise<void> {
+  return ipcErrorWrapper(
+    await window.electron.ipcRenderer.invoke('toggleProfileRuleDisable', ruleIndex, disable)
+  )
+}
+
 export async function patchMihomoConfig(patch: Partial<MihomoConfig>): Promise<void> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('patchMihomoConfig', patch))
 }
@@ -296,6 +302,12 @@ export async function serviceStatus(): Promise<
   'running' | 'stopped' | 'not-installed' | 'unknown'
 > {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('serviceStatus'))
+}
+
+export async function quickServiceStatus(): Promise<
+  'running' | 'stopped' | 'not-installed' | 'unknown'
+> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('quickServiceStatus'))
 }
 
 export async function testServiceConnection(): Promise<boolean> {

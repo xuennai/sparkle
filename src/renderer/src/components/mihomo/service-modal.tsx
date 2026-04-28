@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { Button, Spinner, Card, CardBody, Chip, Divider } from '@heroui/react'
 import { Modal } from '@heroui-v3/react'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
-import { serviceStatus, testServiceConnection } from '@renderer/utils/ipc'
+import { serviceStatus, quickServiceStatus, testServiceConnection } from '@renderer/utils/ipc'
 
 interface Props {
   onChange: (open: boolean) => void
@@ -23,6 +23,7 @@ const ServiceModal: React.FC<Props> = (props) => {
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState<ServiceStatusType | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusType>('checking')
+  const loadingRef = useRef(false)
 
   const checkServiceConnection = useCallback(async (): Promise<void> => {
     if (status === 'running') {
@@ -56,38 +57,79 @@ const ServiceModal: React.FC<Props> = (props) => {
 
   const handleAction = async (
     action: () => Promise<void>,
-    isStartAction = false
+    options?: { isStart?: boolean; isUninstall?: boolean }
   ): Promise<void> => {
     setLoading(true)
+    loadingRef.current = true
+    const { isStart, isUninstall } = options ?? {}
+
     try {
       await action()
 
-      await new Promise((resolve) => setTimeout(resolve, 500))
-
-      let result = await serviceStatus()
-
-      if (isStartAction) {
-        let retries = 5
-        while (retries > 0 && result === 'stopped') {
-          await new Promise((resolve) => setTimeout(resolve, 1000))
-          result = await serviceStatus()
-          retries--
-        }
+      // 卸载/停止操作：乐观更新，立即反映状态变更，后台异步刷新
+      if (isUninstall) {
+        setStatus('not-installed')
+        setConnectionStatus('disconnected')
+        // 后台快速检查，不阻塞 UI
+        quickServiceStatus()
+          .then((result) => {
+            if (!loadingRef.current) return
+            setStatus(result as ServiceStatusType)
+          })
+          .catch(() => {})
+        // 直接释放 loading，让用户可进行后续操作
+        setLoading(false)
+        loadingRef.current = false
+        return
       }
 
-      setStatus(result)
+      // 启动操作：需要轮询等待服务就绪
+      if (isStart) {
+        let retries = 8
+        while (retries > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          const result = await quickServiceStatus()
+          if (result === 'running') {
+            setStatus('running')
+            await checkServiceConnection()
+            setLoading(false)
+            loadingRef.current = false
+            return
+          }
+          retries--
+        }
+        // 轮询结束后获取最终状态
+        const finalResult = await serviceStatus()
+        setStatus(finalResult as ServiceStatusType)
+        await checkServiceConnection()
+        setLoading(false)
+        loadingRef.current = false
+        return
+      }
+
+      // 安装/初始化等常规操作
+      let result = await quickServiceStatus()
+      if (result === 'not-installed' || result === 'stopped') {
+        // 可能服务还没完全启动，再等一次
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        result = await serviceStatus()
+      }
+      setStatus(result as ServiceStatusType)
       await checkServiceConnection()
     } catch (e) {
       const errorMsg = String(e)
       if (errorMsg.includes('用户取消操作') || errorMsg.includes('UserCancelledError')) {
         const result = await serviceStatus()
-        setStatus(result)
+        setStatus(result as ServiceStatusType)
         await checkServiceConnection()
         return
       }
       alert(e)
     } finally {
-      setLoading(false)
+      if (loadingRef.current) {
+        setLoading(false)
+        loadingRef.current = false
+      }
     }
   }
 
@@ -274,7 +316,7 @@ const ServiceModal: React.FC<Props> = (props) => {
                       size="sm"
                       color="success"
                       variant="shadow"
-                      onPress={() => handleAction(onStart, true)}
+                      onPress={() => handleAction(onStart, { isStart: true })}
                       isLoading={loading}
                     >
                       启动
@@ -284,7 +326,7 @@ const ServiceModal: React.FC<Props> = (props) => {
                     size="sm"
                     color="danger"
                     variant="flat"
-                    onPress={() => handleAction(onUninstall)}
+                    onPress={() => handleAction(onUninstall, { isUninstall: true })}
                     isLoading={loading}
                   >
                     卸载

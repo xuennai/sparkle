@@ -88,6 +88,7 @@ import {
 } from '../sys/misc'
 import {
   serviceStatus,
+  quickServiceStatus,
   installService,
   uninstallService,
   startService,
@@ -103,7 +104,8 @@ import {
   getRuntimeConfigStr,
   getRawProfileStr,
   getCurrentProfileStr,
-  getOverrideProfileStr
+  getOverrideProfileStr,
+  setDisabledRule
 } from '../core/factory'
 import { listWebdavBackups, webdavBackup, webdavDelete, webdavRestore } from '../resolve/backup'
 import { getInterfaces } from '../sys/interface'
@@ -215,6 +217,15 @@ export function registerIpcMainHandlers(): void {
     ipcErrorWrapper(mihomoGroupDelay)(group, url)
   )
   ipcMain.handle('mihomoRulesDisable', (_e, rules) => ipcErrorWrapper(mihomoRulesDisable)(rules))
+  ipcMain.handle(
+    'toggleProfileRuleDisable',
+    async (_e, ruleIndex: number, disable: boolean): Promise<void> => {
+      // 通知 mihomo 内核在运行时禁用/启用规则
+      await mihomoRulesDisable({ [ruleIndex]: disable })
+      // 更新内存中的运行时配置字符串，让配置查看器即时反映变化
+      setDisabledRule(ruleIndex, disable)
+    }
+  )
   ipcMain.handle('patchMihomoConfig', (_e, patch) => ipcErrorWrapper(patchMihomoConfig)(patch))
   ipcMain.handle('restartMihomoLogs', ipcErrorWrapper(restartMihomoLogs))
   ipcMain.handle('checkAutoRun', ipcErrorWrapper(checkAutoRun))
@@ -273,6 +284,7 @@ export function registerIpcMainHandlers(): void {
   ipcMain.handle('checkElevateTask', () => ipcErrorWrapper(checkElevateTask)())
   ipcMain.handle('deleteElevateTask', () => ipcErrorWrapper(deleteElevateTask)())
   ipcMain.handle('serviceStatus', () => ipcErrorWrapper(serviceStatus)())
+  ipcMain.handle('quickServiceStatus', () => ipcErrorWrapper(quickServiceStatus)())
   ipcMain.handle('testServiceConnection', () => ipcErrorWrapper(testServiceConnection)())
   ipcMain.handle('initService', () => ipcErrorWrapper(initService)())
   ipcMain.handle('installService', () => ipcErrorWrapper(installService)())

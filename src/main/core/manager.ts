@@ -20,7 +20,7 @@ import {
   stopMihomoMemory,
   patchMihomoConfig,
   mihomoGroups,
-  mihomoReloadConfig
+  mihomoReloadConfig,
 } from './mihomoApi'
 import { readFile, rm, writeFile } from 'fs/promises'
 import { mainWindow } from '..'
@@ -1026,6 +1026,11 @@ function isServiceConnectionError(error: unknown): boolean {
 }
 
 /**
+ * Read the current profile's disabledRules and re-apply them to the running
+ * Mihomo kernel. This is called after hotReloadCore() and restartCore()
+ * to ensure persistently disabled rules remain effective after config reload.
+ */
+/**
  * Hot-reload the Mihomo configuration via PUT /configs?force=true API.
  *
  * This is the preferred path for "switching subscriptions" or "updating profiles".
@@ -1081,6 +1086,7 @@ export async function hotReloadCore(): Promise<void> {
     mainWindow?.webContents.send('groupsUpdated')
     mainWindow?.webContents.send('rulesUpdated')
     ipcMain.emit('updateTrayMenu')
+
   } catch (error) {
     const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
     await appendAppLog(`[⚙️ hotReloadCore:${reqId}] FAILED: ${errorStr}, falling back to restartCore\n`)

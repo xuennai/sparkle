@@ -51,12 +51,20 @@ const ProxyItem: React.FC<Props> = (props) => {
   return (
     <Card
       as="div"
-      onPress={() => onSelect(group.name, proxy.name)}
       isPressable
       fullWidth
       shadow="sm"
-      className={`${fixed ? 'bg-secondary/30' : selected ? 'bg-primary/30' : 'bg-content2'}`}
+      className={`cursor-pointer data-[pressed=true]:!scale-[0.995] ${fixed ? 'bg-secondary/30' : selected ? 'bg-primary/30' : 'bg-content2'}`}
       radius="sm"
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(group.name, proxy.name)}
+      onKeyDown={(e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect(group.name, proxy.name)
+        }
+      }}
     >
       <CardBody className="py-1.5 px-2">
         <div

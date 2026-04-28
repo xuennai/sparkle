@@ -87,7 +87,20 @@ const ConnectionItemComponent: React.FC<Props> = ({
 
   return (
     <div className={`px-2 pb-2 ${index === 0 ? 'pt-2' : ''}`} style={{ minHeight: 80 }}>
-      <Card as="div" isPressable className="w-full" onPress={handleCardPress}>
+      <Card
+        as="div"
+        isPressable
+        className="w-full cursor-pointer data-[pressed=true]:!scale-[0.995]"
+        role="button"
+        tabIndex={0}
+        onClick={handleCardPress}
+        onKeyDown={(e: React.KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            handleCardPress()
+          }
+        }}
+      >
         <div className="w-full flex justify-between items-center">
           {displayIcon && (
             <div>

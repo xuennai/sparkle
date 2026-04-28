@@ -78,7 +78,8 @@ export async function updateProfileItem(item: ProfileItem): Promise<void> {
 export async function addProfileItem(item: Partial<ProfileItem>): Promise<void> {
   const newItem = await createProfile(item)
   const config = await getProfileConfig()
-  if (await getProfileItem(newItem.id)) {
+  const isExisting = Boolean(await getProfileItem(newItem.id))
+  if (isExisting) {
     await updateProfileItem(newItem)
   } else {
     config.items.push(newItem)
@@ -87,6 +88,9 @@ export async function addProfileItem(item: Partial<ProfileItem>): Promise<void> 
 
   if (!config.current) {
     await changeCurrentProfile(newItem.id)
+  } else if (isExisting && config.current === newItem.id) {
+    // 更新当前配置后热重载内核，使变更立即生效
+    await hotReloadCore()
   }
   await addProfileUpdater(newItem)
 }
@@ -217,7 +221,7 @@ export async function createProfile(item: Partial<ProfileItem>): Promise<Profile
               !item.fingerprint && {
                 proxy: { protocol: 'http', host: '127.0.0.1', port: mixedPort }
               }),
-            headers: { 'User-Agent': newItem.ua || (await getUserAgent()) },
+              headers: { 'User-Agent': newItem.ua || (await getUserAgent()) },
             responseType: 'text'
           })
         } catch (error) {

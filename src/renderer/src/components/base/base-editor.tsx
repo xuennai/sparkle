@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import * as monaco from 'monaco-editor'
 import MonacoEditor, { MonacoDiffEditor } from 'react-monaco-editor'
 import { configureMonacoYaml } from 'monaco-yaml'
@@ -103,6 +103,9 @@ export const BaseEditor: React.FC<Props> = (props) => {
   const hasLongLine = value.split('\n').some((line) => line.length > 1000) || value === ''
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor>(undefined)
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor>(undefined)
+  const originalModelRef = useRef<monaco.editor.ITextModel>(undefined)
+  const modifiedModelRef = useRef<monaco.editor.ITextModel>(undefined)
+  const editorModelRef = useRef<monaco.editor.ITextModel>(undefined)
 
   const editorWillMount = (): void => {
     monacoInitialization()
@@ -113,8 +116,10 @@ export const BaseEditor: React.FC<Props> = (props) => {
 
     const uri = monaco.Uri.parse(`${nanoid()}.${language === 'yaml' ? 'clash' : ''}.${language}`)
     const model = monaco.editor.createModel(value, language, uri)
+    editorModelRef.current = model
     editorRef.current.setModel(model)
   }
+
   const diffEditorDidMount = (editor: monaco.editor.IStandaloneDiffEditor): void => {
     diffEditorRef.current = editor
 
@@ -126,10 +131,60 @@ export const BaseEditor: React.FC<Props> = (props) => {
     )
     const originalModel = monaco.editor.createModel(originalValue || '', language, originalUri)
     const modifiedModel = monaco.editor.createModel(value, language, modifiedUri)
+    originalModelRef.current = originalModel
+    modifiedModelRef.current = modifiedModel
     diffEditorRef.current.setModel({
       original: originalModel,
       modified: modifiedModel
     })
+  }
+
+  // 当 originalValue 或 value 变化时，同步更新 diff editor 的模型内容，
+  // 避免因模型内容与 props 不一致导致 "no diff result available" 错误
+  useEffect(() => {
+    if (!diffEditorRef.current) return
+    const originalModel = originalModelRef.current
+    const modifiedModel = modifiedModelRef.current
+    if (originalModel && originalModel.getValue() !== (originalValue || '')) {
+      originalModel.setValue(originalValue || '')
+    }
+    if (modifiedModel && modifiedModel.getValue() !== value) {
+      modifiedModel.setValue(value)
+    }
+  }, [originalValue, value])
+
+  // 当 language 属性变化时，重新设置模型的语言
+  useEffect(() => {
+    if (originalModelRef.current) {
+      monaco.editor.setModelLanguage(originalModelRef.current, language)
+    }
+    if (modifiedModelRef.current) {
+      monaco.editor.setModelLanguage(modifiedModelRef.current, language)
+    }
+    if (editorModelRef.current) {
+      monaco.editor.setModelLanguage(editorModelRef.current, language)
+    }
+  }, [language])
+
+  // 组件卸载时释放创建的模型，防止内存泄漏和后台 diff 计算错误
+  const handleEditorWillUnmount = (): void => {
+    if (editorModelRef.current) {
+      editorModelRef.current.dispose()
+      editorModelRef.current = undefined
+    }
+    editorRef.current = undefined
+  }
+
+  const handleDiffEditorWillUnmount = (): void => {
+    if (originalModelRef.current) {
+      originalModelRef.current.dispose()
+      originalModelRef.current = undefined
+    }
+    if (modifiedModelRef.current) {
+      modifiedModelRef.current.dispose()
+      modifiedModelRef.current = undefined
+    }
+    diffEditorRef.current = undefined
   }
 
   const options = {
@@ -189,7 +244,7 @@ export const BaseEditor: React.FC<Props> = (props) => {
         options={options}
         editorWillMount={editorWillMount}
         editorDidMount={diffEditorDidMount}
-        editorWillUnmount={(): void => {}}
+        editorWillUnmount={handleDiffEditorWillUnmount}
         onChange={onChange}
       />
     )
@@ -204,7 +259,7 @@ export const BaseEditor: React.FC<Props> = (props) => {
       options={options}
       editorWillMount={editorWillMount}
       editorDidMount={editorDidMount}
-      editorWillUnmount={(): void => {}}
+      editorWillUnmount={handleEditorWillUnmount}
       onChange={onChange}
     />
   )

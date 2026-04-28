@@ -36,7 +36,7 @@ const TrafficChart: React.FC<TrafficChartProps> = (props) => {
   }, [isActive])
 
   return (
-    <div className="absolute top-0 left-0 w-full h-full pointer-events-none rounded-[14px]">
+    <div className="absolute top-0 left-0 w-full h-full pointer-events-none rounded-[14px] min-w-[1px] min-h-[1px]">
       {mounted && (
         <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
           <AreaChart data={validData} margin={{ top: 50, right: 0, left: 0, bottom: 0 }}>
