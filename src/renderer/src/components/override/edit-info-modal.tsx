@@ -24,12 +24,12 @@ const EditInfoModal: React.FC<Props> = (props) => {
       }
 
       await updateOverrideItem(itemToSave)
+      onClose()
       if (item.id) {
         await hotReloadCore()
       }
     } catch (e) {
       alert(e)
-    } finally {
       onClose()
     }
   }

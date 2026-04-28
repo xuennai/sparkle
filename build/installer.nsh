@@ -95,10 +95,33 @@
   FileClose $R0
   Pop $R0
 
-  ; 暴力杀进程：清理所有可能锁定文件的残留进程
-  nsExec::ExecToStack 'taskkill /F /IM "sparkle.exe" /T'
-  nsExec::ExecToStack 'taskkill /F /IM "sparkle-service.exe" /T'
-  nsExec::ExecToStack 'taskkill /F /IM "mihomo-*.exe" /T'
+  ; 检测 sparkle.exe 是否在运行，弹窗让用户决定是否关闭
+  nsExec::ExecToStack 'tasklist /FI "IMAGENAME eq sparkle.exe" /NH'
+  Pop $R2
+  Pop $R3
+
+  StrCpy $R7 "false"
+  ${If} $R2 == 0
+    !insertmacro ServiceOutputContains "sparkle.exe" $R7
+  ${EndIf}
+
+  ${If} $R7 == "true"
+    MessageBox MB_YESNO|MB_ICONQUESTION \
+      "检测到 Sparkle 正在运行。$\r$\n是否自动关闭 Sparkle 以继续安装？$\r$\n$\r$\n选择「是」将关闭 Sparkle 后继续安装。$\r$\n选择「否」将退出安装程序。" \
+      IDYES doKillAll IDNO doAbort
+    doKillAll:
+      nsExec::ExecToStack 'taskkill /F /IM "sparkle.exe" /T'
+      nsExec::ExecToStack 'taskkill /F /IM "sparkle-service.exe" /T'
+      nsExec::ExecToStack 'taskkill /F /IM "mihomo-*.exe" /T'
+      Goto afterProcessCheck
+    doAbort:
+      Abort
+  ${Else}
+    ; sparkle.exe 不在运行，但仍需清理可能残留的后台进程
+    nsExec::ExecToStack 'taskkill /F /IM "sparkle-service.exe" /T'
+    nsExec::ExecToStack 'taskkill /F /IM "mihomo-*.exe" /T'
+  ${EndIf}
+  afterProcessCheck:
 
   StrCpy $sparkleServiceWasRunning "false"
   !insertmacro StopSparkleServiceIfRunning
