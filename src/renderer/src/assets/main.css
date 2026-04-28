@@ -165,21 +165,3 @@
     background: #c0c1c58f;
   }
 }
-
-@keyframes fade-in-slide {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
-.group-expand-enter {
-  animation: fade-in-slide 0.2s ease-out;
-}
-
-.group-flip {
-  will-change: transform;
-}

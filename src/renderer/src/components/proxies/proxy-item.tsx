@@ -16,15 +16,15 @@ interface Props {
 const ProxyItem: React.FC<Props> = (props) => {
   const { mutateProxies, proxyDisplayLayout, group, proxy, selected, onSelect, onProxyDelay } =
     props
-
   const delay = useMemo(() => {
-    if (proxy.history.length > 0) {
+    if (proxy.history && proxy.history.length > 0) {
       return proxy.history[proxy.history.length - 1].delay
     }
     return -1
-  }, [proxy])
+  }, [proxy.history])
 
   const [loading, setLoading] = useState(false)
+
   function delayColor(delay: number): 'primary' | 'success' | 'warning' | 'danger' {
     if (delay === -1) return 'primary'
     if (delay === 0) return 'danger'
@@ -54,7 +54,8 @@ const ProxyItem: React.FC<Props> = (props) => {
       isPressable
       fullWidth
       shadow="sm"
-      className={`cursor-pointer data-[pressed=true]:!scale-[0.995] ${fixed ? 'bg-secondary/30' : selected ? 'bg-primary/30' : 'bg-content2'}`}
+      className={`cursor-pointer data-[pressed=true]:!scale-[0.995] transform-gpu will-change-transform transition-colors ${fixed ? 'bg-secondary/30' : selected ? 'bg-primary/30' : 'bg-content2'
+        }`}
       radius="sm"
       role="button"
       tabIndex={0}
@@ -88,14 +89,15 @@ const ProxyItem: React.FC<Props> = (props) => {
                     isIconOnly
                     title="取消固定"
                     color="danger"
-                    onPress={async () => {
+                    onPress={async (e) => {
+                      e.continuePropagation?.();
                       await mihomoUnfixedProxy(group.name)
                       mutateProxies()
                     }}
                     variant="light"
                     className="h-6 w-6 min-w-6 p-0 text-xs"
                   >
-                    <FaMapPin className="text-xs le" />
+                    <FaMapPin className="text-xs" />
                   </Button>
                 )}
                 <Button
@@ -103,7 +105,10 @@ const ProxyItem: React.FC<Props> = (props) => {
                   title={proxy.type}
                   isLoading={loading}
                   color={delayColor(delay)}
-                  onPress={onDelay}
+                  onPress={(e) => {
+                    e.continuePropagation?.();
+                    onDelay();
+                  }}
                   variant="light"
                   className="h-8 w-8 min-w-8 p-0 text-xs"
                 >
@@ -130,14 +135,15 @@ const ProxyItem: React.FC<Props> = (props) => {
                       isIconOnly
                       title="取消固定"
                       color="danger"
-                      onPress={async () => {
+                      onPress={async (e) => {
+                        e.continuePropagation?.();
                         await mihomoUnfixedProxy(group.name)
                         mutateProxies()
                       }}
                       variant="light"
                       className="h-6 w-6 min-w-6 p-0 text-xs"
                     >
-                      <FaMapPin className="text-xs le" />
+                      <FaMapPin className="text-xs" />
                     </Button>
                   </div>
                 )}
@@ -147,7 +153,10 @@ const ProxyItem: React.FC<Props> = (props) => {
                     title={proxy.type}
                     isLoading={loading}
                     color={delayColor(delay)}
-                    onPress={onDelay}
+                    onPress={(e) => {
+                      e.continuePropagation?.();
+                      onDelay();
+                    }}
                     variant="light"
                     className="h-full w-8 min-w-8 p-0 text-sm"
                   >
@@ -163,4 +172,14 @@ const ProxyItem: React.FC<Props> = (props) => {
   )
 }
 
-export default ProxyItem
+const arePropsEqual = (prevProps: Props, nextProps: Props) => {
+  return (
+    prevProps.selected === nextProps.selected &&
+    prevProps.proxyDisplayLayout === nextProps.proxyDisplayLayout &&
+    prevProps.proxy.name === nextProps.proxy.name &&
+    prevProps.proxy.history?.length === nextProps.proxy.history?.length &&
+    prevProps.group.fixed === nextProps.group.fixed
+  )
+}
+
+export default React.memo(ProxyItem, arePropsEqual)
