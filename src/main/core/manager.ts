@@ -267,7 +267,8 @@ export async function startCore(detached = false): Promise<Promise<void>[]> {
 async function startCoreImpl(
   detached: boolean,
   reqId: string,
-  startCoreStartedAt: number
+  startCoreStartedAt: number,
+  skipServiceMode = false
 ): Promise<Promise<void>[]> {
   // Global timeout guard for startCore (not applied to detached mode)
   let globalTimeout: NodeJS.Timeout | null = null
@@ -304,7 +305,7 @@ async function startCoreImpl(
   const controlledMihomoConfig = await getControledMihomoConfig()
   const { 'log-level': logLevel, tun } = controlledMihomoConfig
   const { current } = await getProfileConfig()
-  const useServiceCore = corePermissionMode === 'service' && !detached
+  const useServiceCore = corePermissionMode === 'service' && !detached && !skipServiceMode
   await appendAppLog(`[Manager]: useServiceCore=${useServiceCore}, current=${current}\n`)
 
   let corePath: string
@@ -348,6 +349,16 @@ async function startCoreImpl(
       const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
       await appendAppLog(`[Manager]: Service core status check failed, elapsed: ${Date.now() - tStatus}ms, error: ${errorStr}\n`)
       if (isServiceConnectionError(error)) {
+        // Try to start the Windows service process before waiting/fallback
+        // This handles the case where the service was stopped/paused after reinstall
+        await appendAppLog(`[Manager]: Service not reachable, attempting to start service process...\n`)
+        try {
+          const { startService } = await import('../service/manager')
+          await startService()
+          await appendAppLog(`[Manager]: Service start initiated successfully, waiting for connection...\n`)
+        } catch (startErr) {
+          await appendAppLog(`[Manager]: Service start attempt failed (will continue with wait/fallback): ${startErr}\n`)
+        }
         const probe = await waitForServiceCoreConnection(error)
         if (!probe.reachable) {
           return fallbackToElevatedCore(detached, probe.error)
@@ -442,7 +453,14 @@ async function startCoreImpl(
       const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
       await appendAppLog(`[Manager]: Service core start error: ${errorStr}\n`)
       if (isServiceConnectionError(error)) {
-        await appendAppLog(`[Manager]: Connection error, waiting for service fallback...\n`)
+        await appendAppLog(`[Manager]: Connection error, attempting to restart service...\n`)
+        try {
+          const { startService } = await import('../service/manager')
+          await startService()
+          await appendAppLog(`[Manager]: Service restart initiated, waiting for connection...\n`)
+        } catch (startErr) {
+          await appendAppLog(`[Manager]: Service restart attempt failed (will continue with fallback): ${startErr}\n`)
+        }
         const probe = await waitForServiceCoreConnection(error)
         if (!probe.reachable) {
           return fallbackToElevatedCore(detached, probe.error)
@@ -982,12 +1000,15 @@ async function fallbackToElevatedCore(
   await appendAppLog(`[Manager]: Service unavailable, fallback to elevated core, reason: ${reasonStr}\n`)
   stopServiceCoreEventStream()
   releaseServiceCoreEventHandler()
-  await patchAppConfig({ corePermissionMode: 'elevated' })
+  // 不持久化修改 corePermissionMode 配置，保留用户设置的 'service' 模式
+  // 这样下次应用重启时仍会尝试使用服务模式，避免重装后配置被意外覆盖
+  await appendAppLog(`[Manager]: Keeping corePermissionMode='service' in config, will retry on next startup\n`)
   mainWindow?.webContents.send('appConfigUpdated')
   floatingWindow?.webContents.send('appConfigUpdated')
   // Use startCoreImpl directly to avoid deadlock on isStarting mutex
   // (we're already inside startCoreImpl's call chain)
-  return startCoreImpl(detached, 'fallback', Date.now())
+  // skipServiceMode=true 防止递归调用时再次触发服务模式检测导致无限循环
+  return startCoreImpl(detached, 'fallback', Date.now(), true)
 }
 
 function isServiceConnectionError(error: unknown): boolean {

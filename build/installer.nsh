@@ -5,7 +5,9 @@
 !macroend
 
 ; 覆盖安装时不清除原文件夹，保留已存在的文件（如用户自定义的 sparkle-service.exe）
+; 卸载时只清空文件夹内部所有内容，保留最外层的安装目录壳子
 !macro customRemoveFiles
+  RMDir /r "$INSTDIR\*"
 !macroend
 
 
@@ -174,6 +176,23 @@
       Pop $R2
       ${If} $R2 != 0
         DetailPrint "Sparkle service start exited with code $R2"
+      ${EndIf}
+
+      ; 等待服务完全进入 RUNNING 状态（最多等 10 秒）
+      ; 确保重装后服务真正就绪，避免应用启动时因服务不可达而降级为直接运行模式
+      DetailPrint "Waiting for Sparkle service to reach RUNNING state..."
+      StrCpy $R5 0
+      ${Do}
+        Sleep 500
+        !insertmacro QuerySparkleServiceState $R6
+        ${If} $R6 == "running"
+          DetailPrint "Sparkle service is now RUNNING"
+          ${Break}
+        ${EndIf}
+        IntOp $R5 $R5 + 1
+      ${LoopUntil} $R5 >= 20
+      ${If} $R6 != "running"
+        DetailPrint "Sparkle service did not reach RUNNING state within timeout (state=$R6)"
       ${EndIf}
     ${EndIf}
   ${EndIf}
