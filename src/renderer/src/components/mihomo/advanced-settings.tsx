@@ -2,7 +2,7 @@ import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-c
 import SettingCard from '../base/base-setting-card'
 import SettingItem from '../base/base-setting-item'
 import InterfaceSelect from '../base/interface-select'
-import { restartCore } from '@renderer/utils/ipc'
+import { hotReloadCore } from '@renderer/utils/ipc'
 import { Button, Input, Switch, Tab, Tabs, Tooltip } from '@heroui/react'
 import { useState } from 'react'
 import { IoIosHelpCircle } from 'react-icons/io'
@@ -28,7 +28,7 @@ const AdvancedSetting: React.FC = () => {
 
   const onChangeNeedRestart = async (patch: Partial<MihomoConfig>): Promise<void> => {
     await patchControledMihomoConfig(patch)
-    await restartCore()
+    await hotReloadCore()
   }
 
   return (

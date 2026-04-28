@@ -108,6 +108,9 @@ let isRestarting = false
 // Mutex for startCore to prevent concurrent start attempts
 let isStarting = false
 
+// Mutex for hotReloadCore to prevent concurrent hot-reload attempts
+let isReloading = false
+
 // Global timeout for startCore
 // Increased to accommodate service-mode core startup which may take longer
 // (e.g., POST /core/start has a per-request timeout of 60s)
@@ -1016,14 +1019,25 @@ export async function hotReloadCore(): Promise<void> {
   const reqId = Math.random().toString(36).substring(7)
   await appendAppLog(`[⚙️ hotReloadCore:${reqId}] ENTER - currentState=${coreState}\n`)
 
-  // Only hot-reload if core is running; otherwise fall back to full restart
-  if (coreState !== 'RUNNING') {
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Core not RUNNING (state=${coreState}), falling back to restartCore\n`)
-    return restartCore()
+  // Mutex: prevent concurrent hot-reload attempts (which would cause file write contention)
+  if (isReloading) {
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] BLOCKED - another reload in progress, waiting...\n`)
+    while (isReloading) {
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    // After waiting, re-check core state and proceed (don't silently drop the request)
+    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Previous reload completed, proceeding...\n`)
   }
+  isReloading = true
 
-  const t0 = Date.now()
   try {
+    // Only hot-reload if core is running; otherwise fall back to full restart
+    if (coreState !== 'RUNNING') {
+      await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Core not RUNNING (state=${coreState}), falling back to restartCore\n`)
+      return restartCore()
+    }
+
+    const t0 = Date.now()
     // 1. Generate the new profile and write config.yaml to disk
     await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Generating profile...\n`)
     await generateProfile()
@@ -1051,6 +1065,8 @@ export async function hotReloadCore(): Promise<void> {
     await appendAppLog(`[⚙️ hotReloadCore:${reqId}] FAILED: ${errorStr}, falling back to restartCore\n`)
     // Fall back to the full restart path
     return restartCore()
+  } finally {
+    isReloading = false
   }
 }
 

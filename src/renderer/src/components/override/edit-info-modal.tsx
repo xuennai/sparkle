@@ -3,7 +3,7 @@ import { Label, Modal, Separator, Surface } from '@heroui-v3/react'
 import type { ReactNode } from 'react'
 import React, { useState } from 'react'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
-import { restartCore } from '@renderer/utils/ipc'
+import { hotReloadCore } from '@renderer/utils/ipc'
 
 interface Props {
   item: OverrideItem
@@ -25,7 +25,7 @@ const EditInfoModal: React.FC<Props> = (props) => {
 
       await updateOverrideItem(itemToSave)
       if (item.id) {
-        await restartCore()
+        await hotReloadCore()
       }
     } catch (e) {
       alert(e)

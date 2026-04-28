@@ -3,7 +3,7 @@ import { Button, Input, Select, SelectItem, Switch, Tooltip } from '@heroui/reac
 import { IoIosHelpCircle } from 'react-icons/io'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
-import { restartCore } from '@renderer/utils/ipc'
+import { hotReloadCore } from '@renderer/utils/ipc'
 import SettingCard from '../base/base-setting-card'
 import SettingItem from '../base/base-setting-item'
 
@@ -36,7 +36,7 @@ const LogSetting: React.FC = () => {
 
   const onChangeNeedRestart = async (patch: Partial<MihomoConfig>): Promise<void> => {
     await patchControledMihomoConfig(patch)
-    await restartCore()
+    await hotReloadCore()
   }
 
   return (

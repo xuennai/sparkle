@@ -13,6 +13,7 @@ import PubSub from 'pubsub-js'
 import {
   manualGrantCorePermition,
   mihomoUpgrade,
+  hotReloadCore,
   restartCore,
   revokeCorePermission,
   findSystemMihomo,
@@ -81,7 +82,7 @@ const Mihomo: React.FC = () => {
 
   const onChangeNeedRestart = async (patch: Partial<MihomoConfig>): Promise<void> => {
     await patchControledMihomoConfig(patch)
-    await restartCore()
+    await hotReloadCore()
   }
 
   const handleConfigChangeWithRestart = async (key: string, value: unknown): Promise<void> => {

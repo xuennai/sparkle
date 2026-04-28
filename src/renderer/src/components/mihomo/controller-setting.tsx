@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import SettingCard from '../base/base-setting-card'
 import SettingItem from '../base/base-setting-item'
 import { Button, Input, Select, SelectItem, Switch, Tooltip } from '@heroui/react'
-import { mihomoUpgradeUI, restartCore } from '@renderer/utils/ipc'
+import { mihomoUpgradeUI, hotReloadCore } from '@renderer/utils/ipc'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
 import EditableList from '../base/base-list-editor'
 import { IoMdCloudDownload, IoMdRefresh } from 'react-icons/io'
@@ -50,7 +50,7 @@ const ControllerSetting: React.FC = () => {
   }
   const onChangeNeedRestart = async (patch: Partial<MihomoConfig>): Promise<void> => {
     await patchControledMihomoConfig(patch)
-    await restartCore()
+    await hotReloadCore()
     if ('external-ui-url' in patch) {
       setTimeout(async () => {
         await upgradeUI()

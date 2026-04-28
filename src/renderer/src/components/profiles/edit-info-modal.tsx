@@ -3,7 +3,7 @@ import { Dropdown, Label, Modal, Separator, Surface } from '@heroui-v3/react'
 import type { ReactNode } from 'react'
 import React, { useState } from 'react'
 import { useOverrideConfig } from '@renderer/hooks/use-override-config'
-import { restartCore } from '@renderer/utils/ipc'
+import { hotReloadCore } from '@renderer/utils/ipc'
 import { MdDeleteForever } from 'react-icons/md'
 import { FaPlus } from 'react-icons/fa6'
 import { IoIosHelpCircle } from 'react-icons/io'
@@ -33,7 +33,7 @@ const EditInfoModal: React.FC<Props> = (props) => {
 
       await updateProfileItem(itemToSave)
       if (item.id && isCurrent) {
-        await restartCore()
+        await hotReloadCore()
       }
     } catch (e) {
       alert(e)

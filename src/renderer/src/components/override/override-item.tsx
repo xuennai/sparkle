@@ -16,7 +16,7 @@ import EditInfoModal from './edit-info-modal'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import ExecLogModal from './exec-log-modal'
-import { openFile, restartCore } from '@renderer/utils/ipc'
+import { openFile, hotReloadCore } from '@renderer/utils/ipc'
 import ConfirmModal from '../base/base-confirm'
 import QRCodeModal from '../base/base-qrcode-modal'
 
@@ -229,15 +229,15 @@ const OverrideItem: React.FC<Props> = (props) => {
                     color="default"
                     disabled={updating}
                     onPress={async () => {
-                      setUpdating(true)
-                      try {
-                        await addOverrideItem(info)
-                        await restartCore()
-                      } catch (e) {
-                        alert(e)
-                      } finally {
-                        setUpdating(false)
-                      }
+                    setUpdating(true)
+                    try {
+                      await addOverrideItem(info)
+                      await hotReloadCore()
+                    } catch (e) {
+                      alert(e)
+                    } finally {
+                      setUpdating(false)
+                    }
                     }}
                   >
                     <IoMdRefresh

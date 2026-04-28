@@ -6,7 +6,7 @@ import { useAppConfig } from '@renderer/hooks/use-app-config'
 import {
   copyEnv,
   patchControledMihomoConfig,
-  restartCore,
+  hotReloadCore,
   startNetworkDetection,
   stopNetworkDetection
 } from '@renderer/utils/ipc'
@@ -150,7 +150,7 @@ const AdvancedSettings: React.FC = () => {
             try {
               await patchAppConfig({ controlDns: v })
               await patchControledMihomoConfig({})
-              await restartCore()
+              await hotReloadCore()
             } catch (e) {
               alert(e)
             }
@@ -165,7 +165,7 @@ const AdvancedSettings: React.FC = () => {
             try {
               await patchAppConfig({ controlSniff: v })
               await patchControledMihomoConfig({})
-              await restartCore()
+              await hotReloadCore()
             } catch (e) {
               alert(e)
             }

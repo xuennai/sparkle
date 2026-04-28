@@ -4,7 +4,7 @@ import SettingCard from '@renderer/components/base/base-setting-card'
 import SettingItem from '@renderer/components/base/base-setting-item'
 import EditableList from '@renderer/components/base/base-list-editor'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
-import { restartCore } from '@renderer/utils/ipc'
+import { hotReloadCore } from '@renderer/utils/ipc'
 import React, { useState } from 'react'
 
 const Sniffer: React.FC = () => {
@@ -57,7 +57,7 @@ const Sniffer: React.FC = () => {
     try {
       setChanged(false)
       await patchControledMihomoConfig(patch)
-      await restartCore()
+      await hotReloadCore()
     } catch (e) {
       alert(e)
     }
