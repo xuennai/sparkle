@@ -5,6 +5,8 @@ import path from 'path'
 import { getIcon } from 'file-icon-info'
 import { windowsDefaultIcon, darwinDefaultIcon, otherDevicesIcon } from './defaultIcon'
 import { app } from 'electron'
+import { fileIconToBuffer } from 'file-icon'
+import { resolveWithDosDeviceMappings } from './devicePathResolver'
 import os from 'os'
 import crypto from 'crypto'
 import { exec } from 'child_process'
@@ -635,7 +637,6 @@ export async function getIconDataURL(appPath: string): Promise<string> {
     if (!appPath.includes('.app') && !appPath.includes('.xpc')) {
       return darwinDefaultIcon
     }
-    const { fileIconToBuffer } = await import('file-icon')
     const targetPath = findBestAppPath(appPath)
     if (!targetPath) {
       return darwinDefaultIcon
@@ -647,7 +648,6 @@ export async function getIconDataURL(appPath: string): Promise<string> {
 
   if (process.platform === 'win32') {
     if (appPath.startsWith('\\Device\\')) {
-      const { resolveWithDosDeviceMappings } = await import('./devicePathResolver')
       const resolvePath = resolveWithDosDeviceMappings(appPath)
       if (resolvePath) {
         appPath = resolvePath

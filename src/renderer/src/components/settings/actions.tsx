@@ -13,7 +13,6 @@ import { useState, useEffect } from 'react'
 import UpdaterModal from '../updater/updater-modal'
 import { version } from '@renderer/utils/init'
 import { IoIosHelpCircle } from 'react-icons/io'
-import { startTour } from '@renderer/utils/driver'
 import { useNavigate } from 'react-router-dom'
 import ConfirmModal from '../base/base-confirm'
 
@@ -85,7 +84,7 @@ const Actions: React.FC = () => {
       )}
       <SettingCard>
         <SettingItem compatKey="legacy" title="打开引导页面" divider>
-          <Button size="sm" onPress={() => startTour(navigate)}>
+          <Button size="sm" onPress={() => import('@renderer/utils/driver').then(({ startTour }) => startTour(navigate))}>
             打开引导页面
           </Button>
         </SettingItem>

@@ -34,6 +34,28 @@ export default defineConfig({
           index: resolve('src/renderer/index.html'),
           floating: resolve('src/renderer/floating.html'),
           traymenu: resolve('src/renderer/traymenu.html')
+        },
+        output: {
+          manualChunks(id) {
+            // HeroUI v3: pnpm 路径格式为 @heroui+react@3.0.3_... 或通过 @heroui-v3 别名
+            if (id.includes('@heroui-v3') || /@heroui\+.*@3\.\d/.test(id)) {
+              return 'hero-v3'
+            }
+            // HeroUI v2: pnpm 路径格式为 @heroui+react@2.8.10_... 或 @heroui+button@2.2.32_... 等子包
+            if (/@heroui\+.*@2\.\d/.test(id)) {
+              return 'hero-v2'
+            }
+            // framer-motion 单独打包，避免被 v2 和 v3 各打包一次
+            if (id.includes('framer-motion')) {
+              return 'vendor-framer-motion'
+            }
+            // react-aria 相关共享依赖
+            if (id.includes('react-aria') || id.includes('react-stately')) {
+              return 'vendor-aria'
+            }
+            // 不匹配以上规则的不分割，由 Rollup 自动处理
+            return undefined
+          }
         }
       }
     },

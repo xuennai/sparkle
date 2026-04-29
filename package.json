@@ -27,9 +27,9 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "@heroui-v3/react": "npm:@heroui/react@latest",
-    "@heroui-v3/styles": "npm:@heroui/styles@latest",
-    "@heroui/react": "2.8.10",
+    "@heroui-v3/react": "npm:@heroui/react@^3.0.3",
+    "@heroui-v3/styles": "npm:@heroui/styles@^3.0.3",
+    "@heroui/react": "^2.8.10",
     "@tailwindcss/postcss": "^4.2.2",
     "@tailwindcss/vite": "^4.2.2",
     "@types/crypto-js": "^4.2.2",
@@ -107,13 +107,15 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
+      "electron-winstaller",
       "koffi"
     ],
     "patchedDependencies": {
       "vite-plugin-monaco-editor@1.1.0": "patches/vite-plugin-monaco-editor@1.1.0.patch"
     },
     "overrides": {
-      "vite": "npm:rolldown-vite@^7.3.1"
+      "vite": "npm:rolldown-vite@^7.3.1",
+      "framer-motion": "12.36.0"
     },
     "ignoredBuiltDependencies": [
       "@heroui/shared-utils",

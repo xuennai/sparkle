@@ -1,6 +1,7 @@
 import { getAppConfig } from '../config'
 import dayjs from 'dayjs'
 import AdmZip from 'adm-zip'
+import { createClient } from 'webdav/dist/node/index.js'
 import {
   appConfigPath,
   controledMihomoConfigPath,
@@ -14,7 +15,6 @@ import {
 } from '../utils/dirs'
 
 export async function webdavBackup(): Promise<boolean> {
-  const { createClient } = await import('webdav/dist/node/index.js')
   const {
     webdavUrl = '',
     webdavUsername = '',
@@ -48,7 +48,6 @@ export async function webdavBackup(): Promise<boolean> {
 }
 
 export async function webdavRestore(filename: string): Promise<void> {
-  const { createClient } = await import('webdav/dist/node/index.js')
   const {
     webdavUrl = '',
     webdavUsername = '',
@@ -66,7 +65,6 @@ export async function webdavRestore(filename: string): Promise<void> {
 }
 
 export async function listWebdavBackups(): Promise<string[]> {
-  const { createClient } = await import('webdav/dist/node/index.js')
   const {
     webdavUrl = '',
     webdavUsername = '',
@@ -83,7 +81,6 @@ export async function listWebdavBackups(): Promise<string[]> {
 }
 
 export async function webdavDelete(filename: string): Promise<void> {
-  const { createClient } = await import('webdav/dist/node/index.js')
   const {
     webdavUrl = '',
     webdavUsername = '',

@@ -52,6 +52,7 @@ import {
   stopNetworkDetection as stopNetworkDetectionController
 } from './network'
 import { checkProfile } from './profile-check'
+import { startService } from '../service/manager'
 import {
   createCoreEnvironment,
   createCoreSpawnArgs,
@@ -99,7 +100,7 @@ function logCoreStateTransition(newState: CoreState): void {
   const oldState = coreState
   coreState = newState
   const stackLine = new Error().stack?.split('\n')[3]?.trim() || 'unknown'
-  appendAppLog(`[STATE:${seq}] 🟢 ${oldState} -> 🔴 ${newState} | Triggered by: ${stackLine}\n`).catch(() => {})
+  appendAppLog(`[STATE:${seq}] 🟢 ${oldState} -> 🔴 ${newState} | Triggered by: ${stackLine}\n`).catch(() => { })
 }
 
 // Mutex for restartCore to prevent concurrent restart attempts
@@ -274,11 +275,11 @@ async function startCoreImpl(
   let globalTimeout: NodeJS.Timeout | null = null
   const globalTimeoutPromise = !detached
     ? new Promise<never>((_, reject) => {
-        globalTimeout = setTimeout(() => {
-          const elapsed = Date.now() - startCoreStartedAt
-          reject(new Error(`内核启动超时 (${elapsed}ms)，已超过 ${START_CORE_GLOBAL_TIMEOUT}ms 限制`))
-        }, START_CORE_GLOBAL_TIMEOUT)
-      })
+      globalTimeout = setTimeout(() => {
+        const elapsed = Date.now() - startCoreStartedAt
+        reject(new Error(`内核启动超时 (${elapsed}ms)，已超过 ${START_CORE_GLOBAL_TIMEOUT}ms 限制`))
+      }, START_CORE_GLOBAL_TIMEOUT)
+    })
     : null
 
   const {
@@ -353,7 +354,6 @@ async function startCoreImpl(
         // This handles the case where the service was stopped/paused after reinstall
         await appendAppLog(`[Manager]: Service not reachable, attempting to start service process...\n`)
         try {
-          const { startService } = await import('../service/manager')
           await startService()
           await appendAppLog(`[Manager]: Service start initiated successfully, waiting for connection...\n`)
         } catch (startErr) {
@@ -455,7 +455,6 @@ async function startCoreImpl(
       if (isServiceConnectionError(error)) {
         await appendAppLog(`[Manager]: Connection error, attempting to restart service...\n`)
         try {
-          const { startService } = await import('../service/manager')
           await startService()
           await appendAppLog(`[Manager]: Service restart initiated, waiting for connection...\n`)
         } catch (startErr) {
@@ -499,7 +498,7 @@ async function startCoreImpl(
       if (!controllerReadyReceived && controllerReadyResolve) {
         controllerReadyResolve()
         controllerReadyResolve = null
-        appendAppLog(`[Manager]: controller_ready not received within ${controllerReadyGracePeriod}ms grace period, falling back to polling\n`).catch(() => {})
+        appendAppLog(`[Manager]: controller_ready not received within ${controllerReadyGracePeriod}ms grace period, falling back to polling\n`).catch(() => { })
       }
     }, controllerReadyGracePeriod)
 
@@ -548,7 +547,7 @@ async function startCoreImpl(
     if (globalTimeout) clearTimeout(globalTimeout)
     await appendAppLog(`[Manager]: ===== startCore (detached) completed, total: ${Date.now() - startCoreStartedAt}ms =====\n`)
     return new Promise((resolve) => {
-      resolve([new Promise(() => {})])
+      resolve([new Promise(() => { })])
     })
   }
   child.on('close', async (code, signal) => {
@@ -678,7 +677,7 @@ async function startCoreImpl(
         if (globalTimeout) clearTimeout(globalTimeout)
         // If timeout triggered, kill the child process to prevent orphan
         if (child && !child.killed) {
-          stopChildProcess(child).catch(() => {})
+          stopChildProcess(child).catch(() => { })
           child = undefined as unknown as ChildProcess
         }
         throw error
@@ -751,7 +750,7 @@ export async function stopCore(force = false): Promise<void> {
   }
 
   const t2 = Date.now()
-  await getAxios(true).catch(() => {})
+  await getAxios(true).catch(() => { })
   await appendAppLog(`[Manager]: Axios connection reset, elapsed: ${Date.now() - t2}ms\n`)
 
   if (existsSync(path.join(dataDir(), 'core.pid'))) {
@@ -773,7 +772,7 @@ export async function stopCore(force = false): Promise<void> {
         // ignore
       }
     }
-    await rm(path.join(dataDir(), 'core.pid')).catch(() => {})
+    await rm(path.join(dataDir(), 'core.pid')).catch(() => { })
     await appendAppLog(`[Manager]: core.pid cleaned up\n`)
   }
 
@@ -818,14 +817,14 @@ async function handleServiceCoreEvent(event: ServiceCoreEvent): Promise<void> {
 
   switch (event.type) {
     case 'started':
-      await getAxios(true).catch(() => {})
+      await getAxios(true).catch(() => { })
       mainWindow?.webContents.send('core-started', event)
       mainWindow?.webContents.send('groupsUpdated')
       mainWindow?.webContents.send('rulesUpdated')
       ipcMain.emit('updateTrayMenu')
       void ensureServiceCoreStreamsStarted().catch((error) => {
         const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
-        appendAppLog(`[Manager]: start service core streams failed: ${errorStr}\n`).catch(() => {})
+        appendAppLog(`[Manager]: start service core streams failed: ${errorStr}\n`).catch(() => { })
       })
       break
     case 'controller_ready':
@@ -838,7 +837,7 @@ async function handleServiceCoreEvent(event: ServiceCoreEvent): Promise<void> {
       break
     case 'takeover':
     case 'ready':
-      await getAxios(true).catch(() => {})
+      await getAxios(true).catch(() => { })
       mainWindow?.webContents.send('core-started', event)
       mainWindow?.webContents.send('groupsUpdated')
       mainWindow?.webContents.send('rulesUpdated')
@@ -937,7 +936,7 @@ function scheduleServiceCoreStreamsRestart(): void {
   serviceCoreStreamsRestartTimer = setTimeout(() => {
     serviceCoreStreamsRestartTimer = null
     restartServiceCoreStreams().catch((error) => {
-      appendAppLog(`[Manager]: restart service core streams failed, ${error}\n`).catch(() => {})
+      appendAppLog(`[Manager]: restart service core streams failed, ${error}\n`).catch(() => { })
     })
   }, 300)
 }
@@ -970,7 +969,7 @@ async function ensureServiceCoreStreamsStarted(): Promise<void> {
   serviceCoreStreamsStarting = (async () => {
     const t0 = Date.now()
     await appendAppLog(`[Manager]: Service core streams: resetting axios connection...\n`)
-    await getAxios(true).catch(() => {})
+    await getAxios(true).catch(() => { })
     await appendAppLog(`[Manager]: Service core streams: starting traffic...\n`)
     await startMihomoTraffic()
     await appendAppLog(`[Manager]: Service core streams: starting connections...\n`)
