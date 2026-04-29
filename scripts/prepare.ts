@@ -45,12 +45,24 @@ async function getLatestAlphaVersion() {
     const response = await fetch(MIHOMO_ALPHA_VERSION_URL, {
       method: 'GET'
     })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
     const v = await response.text()
+
+    // 防止 GitHub 抽风返回 HTML 错误页面
+    if (v.trim().startsWith('<')) {
+      throw new Error('Received HTML instead of a valid version string');
+    }
+
     MIHOMO_ALPHA_VERSION = v.trim() // Trim to remove extra whitespaces
     console.log(`Latest alpha version: ${MIHOMO_ALPHA_VERSION}`)
   } catch (error) {
     console.error('Error fetching latest alpha version:', getErrorMessage(error))
     console.error('Warning: alpha version fetch failed, skipping alpha mihomo download')
+    throw error // 抛出错误以触发重试机制
   }
 }
 
@@ -77,12 +89,23 @@ async function getLatestReleaseVersion() {
     const response = await fetch(MIHOMO_VERSION_URL, {
       method: 'GET'
     })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
     const v = await response.text()
+
+    // 防止 GitHub 抽风返回 HTML 错误页面
+    if (v.trim().startsWith('<')) {
+      throw new Error('Received HTML instead of a valid version string');
+    }
+
     MIHOMO_VERSION = v.trim() // Trim to remove extra whitespaces
     console.log(`Latest release version: ${MIHOMO_VERSION}`)
   } catch (error) {
     console.error('Error fetching latest release version:', getErrorMessage(error))
-    process.exit(1)
+    throw error // 抛出错误以触发重试机制
   }
 }
 
@@ -245,6 +268,12 @@ async function downloadFile(url, path) {
     method: 'GET',
     headers: { 'Content-Type': 'application/octet-stream' }
   })
+
+  // 增加验证，防止下载到 404 或 500 的 HTML 页面伪装成资源文件
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status} for ${url}`);
+  }
+
   const buffer = await response.arrayBuffer()
   fs.writeFileSync(path, new Uint8Array(buffer))
 
@@ -386,14 +415,12 @@ const resolveSubstoreFrontend = async () => {
   console.log(`[INFO]: sub-store-frontend finished`)
 }
 const resolveFont = async () => {
-  // const targetPath = path.join(cwd, 'src', 'renderer', 'src', 'assets', 'NotoColorEmoji.ttf')
   const targetPath = path.join(cwd, 'src', 'renderer', 'src', 'assets', 'twemoji.ttf')
 
   if (fs.existsSync(targetPath)) {
     return
   }
   await downloadFile(
-    // 'https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf',
     'https://github.com/Sav22999/emoji/raw/refs/heads/master/font/twemoji.ttf',
     targetPath
   )
