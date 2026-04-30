@@ -18,6 +18,5 @@
     "editor.defaultFormatter": null
   },
   "editor.formatOnSave": true,
-  "css.lint.unknownAtRules": "ignore",
-  "json.schemaDownload.enable": false
+  "css.lint.unknownAtRules": "ignore"
 }
