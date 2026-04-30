@@ -92,7 +92,7 @@
   touch-action: pan-y;
 }
 
-.app-drag>.header {
+.app-drag > .header {
   width: auto;
   padding: 0;
   text-align: inherit;
@@ -164,4 +164,9 @@
   *::-webkit-scrollbar-thumb:hover {
     background: #c0c1c58f;
   }
+}
+
+/* 修复 Monaco 编辑器右键菜单在 Modal 中被遮罩拦截的问题 */
+.context-view {
+  z-index: 99999 !important;
 }

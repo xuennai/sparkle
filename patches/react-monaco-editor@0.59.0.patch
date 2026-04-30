@@ -1,0 +1,32 @@
+diff --git a/lib/diff.js b/lib/diff.js
+index 709679669ebdc99f605b2349501dd139fcb2ed00..48ec387529cba6a65f924be2272a28fa8d7a35fd 100644
+--- a/lib/diff.js
++++ b/lib/diff.js
+@@ -82,7 +82,7 @@ function MonacoDiffEditor(_a, ref) {
+             initModels();
+             handleEditorDidMount();
+         }
+-    }, 
++    },
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+     []);
+     useEffect(function () {
+@@ -135,8 +135,8 @@ function MonacoDiffEditor(_a, ref) {
+     useEffect(function () { return function () {
+         if (editor.current) {
+             handleEditorWillUnmount();
++            var _a = editor.current.getModel(), originalEditor = _a && _a.original, modified = _a && _a.modified;
+             editor.current.dispose();
+-            var _a = editor.current.getModel(), originalEditor = _a.original, modified = _a.modified;
+             if (originalEditor) {
+                 originalEditor.dispose();
+             }
+@@ -147,7 +147,7 @@ function MonacoDiffEditor(_a, ref) {
+         if (_subscription.current) {
+             _subscription.current.dispose();
+         }
+-    }; }, 
++    }; },
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+     []);
+     return (React.createElement("div", { ref: containerElement, style: style, className: "react-monaco-editor-container" }));

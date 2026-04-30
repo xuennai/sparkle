@@ -9,6 +9,9 @@ overrides:
   framer-motion: 12.36.0
 
 patchedDependencies:
+  react-monaco-editor@0.59.0:
+    hash: f98f6f226261306a8116845842bd2ff829c28de321acbd93695184e6b44b3a35
+    path: patches/react-monaco-editor@0.59.0.patch
   vite-plugin-monaco-editor@1.1.0:
     hash: 78bcfd876ec9dcb4b3100060e043c7d9f9f3242b269a1a0fd8f283bf74f97dc6
     path: patches/vite-plugin-monaco-editor@1.1.0.patch
@@ -212,7 +215,7 @@ importers:
         version: 10.1.0(@types/react@19.2.14)(react@19.2.5)
       react-monaco-editor:
         specifier: ^0.59.0
-        version: 0.59.0(monaco-editor@0.52.2)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+        version: 0.59.0(patch_hash=f98f6f226261306a8116845842bd2ff829c28de321acbd93695184e6b44b3a35)(monaco-editor@0.52.2)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       react-router-dom:
         specifier: ^7.14.1
         version: 7.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -11381,7 +11384,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  react-monaco-editor@0.59.0(monaco-editor@0.52.2)(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
+  react-monaco-editor@0.59.0(patch_hash=f98f6f226261306a8116845842bd2ff829c28de321acbd93695184e6b44b3a35)(monaco-editor@0.52.2)(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
     dependencies:
       monaco-editor: 0.52.2
       react: 19.2.5
