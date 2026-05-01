@@ -31,9 +31,9 @@ interface MihomoConfig {
   'lan-disallowed-ips'?: string[]
   authentication: string[]
   port?: number
-  proxies?: []
-  'proxy-groups'?: []
-  rules?: []
+  proxies?: { name: string; type: string; [key: string]: unknown }[]
+  'proxy-groups'?: { name: string; type: string; url?: string; [key: string]: unknown }[]
+  rules?: string[]
   hosts?: { [key: string]: string | string[] }
   'geodata-mode'?: boolean
   'geo-auto-update'?: boolean

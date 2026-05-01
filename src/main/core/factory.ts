@@ -21,6 +21,7 @@ import { deepMerge } from '../utils/merge'
 import vm from 'vm'
 import { existsSync, writeFileSync } from 'fs'
 import path from 'path'
+import { getDefaultDevice } from './network'
 
 let runtimeConfigStr: string,
   rawProfileStr: string,
@@ -157,7 +158,7 @@ async function cleanProfile(
   cleanNumberConfigs(profile)
   cleanStringConfigs(profile)
   cleanAuthenticationConfig(profile)
-  cleanTunConfig(profile)
+  await cleanTunConfig(profile)
   cleanDnsConfig(profile, controlDns)
   cleanSnifferConfig(profile, controlSniff)
   cleanProxyConfigs(profile)
@@ -264,19 +265,27 @@ function cleanAuthenticationConfig(profile: MihomoConfig): void {
   }
 }
 
-function cleanTunConfig(profile: MihomoConfig): void {
+async function cleanTunConfig(profile: MihomoConfig): Promise<void> {
   if (!profile.tun?.enable) {
     delete (profile as Partial<MihomoConfig>).tun
     return
   }
 
   const tunConfig = profile.tun as MihomoTunConfig
+  const partialProfile = profile as Partial<MihomoConfig>
 
   if (tunConfig['auto-route'] !== false) {
     delete tunConfig['auto-route']
   }
   if (tunConfig['auto-detect-interface'] !== false) {
     delete tunConfig['auto-detect-interface']
+    if (!profile['interface-name']) {
+      try {
+        partialProfile['interface-name'] = await getDefaultDevice()
+      } catch {
+        // getDefaultDevice failed (no network), don't block startup
+      }
+    }
   }
 
   const tunBooleanConfigs = ['auto-redirect', 'strict-route', 'disable-icmp-forwarding']

@@ -20,7 +20,7 @@ import {
   stopMihomoMemory,
   patchMihomoConfig,
   mihomoGroups,
-  mihomoReloadConfig,
+  mihomoReloadConfig
 } from './mihomoApi'
 import { readFile, rm, writeFile } from 'fs/promises'
 import { mainWindow } from '..'
@@ -100,7 +100,9 @@ function logCoreStateTransition(newState: CoreState): void {
   const oldState = coreState
   coreState = newState
   const stackLine = new Error().stack?.split('\n')[3]?.trim() || 'unknown'
-  appendAppLog(`[STATE:${seq}] 🟢 ${oldState} -> 🔴 ${newState} | Triggered by: ${stackLine}\n`).catch(() => { })
+  appendAppLog(
+    `[STATE:${seq}] 🟢 ${oldState} -> 🔴 ${newState} | Triggered by: ${stackLine}\n`
+  ).catch(() => {})
 }
 
 // Mutex for restartCore to prevent concurrent restart attempts
@@ -124,7 +126,9 @@ type ServiceCoreConnectionProbe = {
 }
 
 async function startMihomoApiStreams(): Promise<void> {
-  await appendAppLog(`[Manager]: Starting Mihomo API streams (traffic, connections, logs, memory)\n`)
+  await appendAppLog(
+    `[Manager]: Starting Mihomo API streams (traffic, connections, logs, memory)\n`
+  )
   await startMihomoTraffic()
   await startMihomoConnections()
   await startMihomoLogs()
@@ -169,7 +173,9 @@ async function waitForMihomoReady(): Promise<void> {
       await mihomoGroups()
       const elapsed = Date.now() - startedAt
       if (i > 0) {
-        await appendAppLog(`[Manager]: waitForMihomoReady succeeded after ${i} retries, elapsed: ${elapsed}ms\n`)
+        await appendAppLog(
+          `[Manager]: waitForMihomoReady succeeded after ${i} retries, elapsed: ${elapsed}ms\n`
+        )
       }
       break
     } catch {
@@ -185,7 +191,10 @@ async function waitForMihomoReady(): Promise<void> {
 async function waitForServiceCoreConnection(
   initialError: unknown
 ): Promise<ServiceCoreConnectionProbe> {
-  const initialErrorStr = initialError instanceof Error ? `${initialError.message}\n${initialError.stack}` : String(initialError)
+  const initialErrorStr =
+    initialError instanceof Error
+      ? `${initialError.message}\n${initialError.stack}`
+      : String(initialError)
   await appendAppLog(
     `[Manager]: Service connection failed, waiting before fallback, error: ${initialErrorStr}\n`
   )
@@ -212,7 +221,8 @@ async function waitForServiceCoreConnection(
     }
   }
 
-  const lastErrorStr = lastError instanceof Error ? `${lastError.message}\n${lastError.stack}` : String(lastError)
+  const lastErrorStr =
+    lastError instanceof Error ? `${lastError.message}\n${lastError.stack}` : String(lastError)
   await appendAppLog(
     `[Manager]: Service still unavailable after ${serviceConnectionRetryTimeout}ms, last error: ${lastErrorStr}\n`
   )
@@ -221,17 +231,23 @@ async function waitForServiceCoreConnection(
 
 export async function startCore(detached = false): Promise<Promise<void>[]> {
   const reqId = Math.random().toString(36).substring(7)
-  await appendAppLog(`[⚙️ startCore:${reqId}] ENTER - detached=${detached}, currentState=${coreState}\n`)
+  await appendAppLog(
+    `[⚙️ startCore:${reqId}] ENTER - detached=${detached}, currentState=${coreState}\n`
+  )
 
   // Mutex: prevent concurrent startCore attempts (except detached mode)
   if (!detached) {
     if (isStarting) {
-      await appendAppLog(`[⚙️ startCore:${reqId}] BLOCKED - startCore already in progress, waiting...\n`)
+      await appendAppLog(
+        `[⚙️ startCore:${reqId}] BLOCKED - startCore already in progress, waiting...\n`
+      )
       // Wait for the current start to finish, then return empty (caller should re-check)
       while (isStarting) {
-        await new Promise(r => setTimeout(r, 100))
+        await new Promise((r) => setTimeout(r, 100))
       }
-      await appendAppLog(`[⚙️ startCore:${reqId}] BLOCKED - previous startCore completed, returning empty\n`)
+      await appendAppLog(
+        `[⚙️ startCore:${reqId}] BLOCKED - previous startCore completed, returning empty\n`
+      )
       return []
     }
     isStarting = true
@@ -255,7 +271,9 @@ export async function startCore(detached = false): Promise<Promise<void>[]> {
     if (!detached) {
       isStarting = false
     }
-    await appendAppLog(`[⚙️ startCore:${reqId}] EXIT - state=${coreState}, elapsed=${Date.now() - startCoreStartedAt}ms\n`)
+    await appendAppLog(
+      `[⚙️ startCore:${reqId}] EXIT - state=${coreState}, elapsed=${Date.now() - startCoreStartedAt}ms\n`
+    )
   }
 }
 
@@ -275,11 +293,13 @@ async function startCoreImpl(
   let globalTimeout: NodeJS.Timeout | null = null
   const globalTimeoutPromise = !detached
     ? new Promise<never>((_, reject) => {
-      globalTimeout = setTimeout(() => {
-        const elapsed = Date.now() - startCoreStartedAt
-        reject(new Error(`内核启动超时 (${elapsed}ms)，已超过 ${START_CORE_GLOBAL_TIMEOUT}ms 限制`))
-      }, START_CORE_GLOBAL_TIMEOUT)
-    })
+        globalTimeout = setTimeout(() => {
+          const elapsed = Date.now() - startCoreStartedAt
+          reject(
+            new Error(`内核启动超时 (${elapsed}ms)，已超过 ${START_CORE_GLOBAL_TIMEOUT}ms 限制`)
+          )
+        }, START_CORE_GLOBAL_TIMEOUT)
+      })
     : null
 
   const {
@@ -301,7 +321,9 @@ async function startCoreImpl(
   // the work directory (e.g., config.yaml) can be hot-reloaded via PUT /configs
   // even when they reside on a different drive/partition than the mihomo binary.
   const safePaths = [...new Set([...configuredSafePaths, dataDir()])]
-  await appendAppLog(`[Manager]: Config: corePermissionMode=${corePermissionMode}, coreStartupMode=${coreStartupMode}, core=${core}, diffWorkDir=${diffWorkDir}\n`)
+  await appendAppLog(
+    `[Manager]: Config: corePermissionMode=${corePermissionMode}, coreStartupMode=${coreStartupMode}, core=${core}, diffWorkDir=${diffWorkDir}\n`
+  )
 
   const controlledMihomoConfig = await getControledMihomoConfig()
   const { 'log-level': logLevel, tun } = controlledMihomoConfig
@@ -334,7 +356,9 @@ async function startCoreImpl(
     await appendAppLog(`[Manager]: Profile check passed, elapsed: ${Date.now() - tCheck}ms\n`)
   } catch (error) {
     const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
-    await appendAppLog(`[Manager]: Profile check FAILED, elapsed: ${Date.now() - tCheck}ms, error: ${errorStr}\n`)
+    await appendAppLog(
+      `[Manager]: Profile check FAILED, elapsed: ${Date.now() - tCheck}ms, error: ${errorStr}\n`
+    )
     throw error
   }
 
@@ -345,19 +369,29 @@ async function startCoreImpl(
     try {
       await getCoreStatus()
       serviceCoreRunning = true
-      await appendAppLog(`[Manager]: Service core is already running, elapsed: ${Date.now() - tStatus}ms\n`)
+      await appendAppLog(
+        `[Manager]: Service core is already running, elapsed: ${Date.now() - tStatus}ms\n`
+      )
     } catch (error) {
       const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
-      await appendAppLog(`[Manager]: Service core status check failed, elapsed: ${Date.now() - tStatus}ms, error: ${errorStr}\n`)
+      await appendAppLog(
+        `[Manager]: Service core status check failed, elapsed: ${Date.now() - tStatus}ms, error: ${errorStr}\n`
+      )
       if (isServiceConnectionError(error)) {
         // Try to start the Windows service process before waiting/fallback
         // This handles the case where the service was stopped/paused after reinstall
-        await appendAppLog(`[Manager]: Service not reachable, attempting to start service process...\n`)
+        await appendAppLog(
+          `[Manager]: Service not reachable, attempting to start service process...\n`
+        )
         try {
           await startService()
-          await appendAppLog(`[Manager]: Service start initiated successfully, waiting for connection...\n`)
+          await appendAppLog(
+            `[Manager]: Service start initiated successfully, waiting for connection...\n`
+          )
         } catch (startErr) {
-          await appendAppLog(`[Manager]: Service start attempt failed (will continue with wait/fallback): ${startErr}\n`)
+          await appendAppLog(
+            `[Manager]: Service start attempt failed (will continue with wait/fallback): ${startErr}\n`
+          )
         }
         const probe = await waitForServiceCoreConnection(error)
         if (!probe.reachable) {
@@ -367,7 +401,9 @@ async function startCoreImpl(
       } else {
         // Non-connection error (e.g., "进程未运行", "核心未运行") means service IS reachable
         // but core is not running yet. This is NOT a failure - proceed to start core.
-        await appendAppLog(`[Manager]: Service core is reachable but not running, will start core\n`)
+        await appendAppLog(
+          `[Manager]: Service core is reachable but not running, will start core\n`
+        )
         serviceCoreRunning = false
       }
     }
@@ -384,8 +420,18 @@ async function startCoreImpl(
       await appendAppLog(`[Manager]: set dns failed, ${error}\n`)
     }
   }
+
+  // 当 TUN 启用且 auto-detect-interface 未显式禁用时，强制关闭回环检测器。
+  // 原因：auto-detect-interface 在物理网络切换（如以太网断连→WLAN）期间，
+  // mihomo 的 FindInterfaceName() 会返回 "<invalid>" 作为接口名，
+  // 导致所有出站连接绑定到不存在的接口而全部 i/o timeout。
+  // 此时回环检测器如果开启，会进一步误判流量死循环而激进丢包，延长黑洞时间。
+  const effectiveDisableLoopbackDetector =
+    tun?.enable && tun['auto-detect-interface'] !== false
+      ? true // TUN + auto-detect 模式下必须关闭回环检测
+      : disableLoopbackDetector
   const env = createCoreEnvironment({
-    disableLoopbackDetector,
+    disableLoopbackDetector: effectiveDisableLoopbackDetector,
     disableEmbedCA,
     disableSystemCA,
     disableNftables,
@@ -435,17 +481,26 @@ async function startCoreImpl(
       const tWs = Date.now()
       await appendAppLog(`[Manager]: Starting service core event stream...\n`)
       await startServiceCoreEventStream()
-      await appendAppLog(`[Manager]: Service core event stream started, elapsed: ${Date.now() - tWs}ms\n`)
+      await appendAppLog(
+        `[Manager]: Service core event stream started, elapsed: ${Date.now() - tWs}ms\n`
+      )
 
       if (!serviceCoreRunning) {
         const tStart = Date.now()
         await appendAppLog(`[Manager]: Calling startServiceCore (POST /core/start)...\n`)
         try {
           await startServiceCore(serviceProfile)
-          await appendAppLog(`[Manager]: startServiceCore succeeded, elapsed: ${Date.now() - tStart}ms\n`)
+          await appendAppLog(
+            `[Manager]: startServiceCore succeeded, elapsed: ${Date.now() - tStart}ms\n`
+          )
         } catch (startError) {
-          const startErrorStr = startError instanceof Error ? `${startError.message}\n${startError.stack}` : String(startError)
-          await appendAppLog(`[Manager]: startServiceCore FAILED, elapsed: ${Date.now() - tStart}ms, error: ${startErrorStr}\n`)
+          const startErrorStr =
+            startError instanceof Error
+              ? `${startError.message}\n${startError.stack}`
+              : String(startError)
+          await appendAppLog(
+            `[Manager]: startServiceCore FAILED, elapsed: ${Date.now() - tStart}ms, error: ${startErrorStr}\n`
+          )
           throw startError
         }
       }
@@ -458,7 +513,9 @@ async function startCoreImpl(
           await startService()
           await appendAppLog(`[Manager]: Service restart initiated, waiting for connection...\n`)
         } catch (startErr) {
-          await appendAppLog(`[Manager]: Service restart attempt failed (will continue with fallback): ${startErr}\n`)
+          await appendAppLog(
+            `[Manager]: Service restart attempt failed (will continue with fallback): ${startErr}\n`
+          )
         }
         const probe = await waitForServiceCoreConnection(error)
         if (!probe.reachable) {
@@ -470,7 +527,9 @@ async function startCoreImpl(
           const tRetry = Date.now()
           await appendAppLog(`[Manager]: Starting service core (retry)...\n`)
           await startServiceCore(serviceProfile)
-          await appendAppLog(`[Manager]: startServiceCore retry succeeded, elapsed: ${Date.now() - tRetry}ms\n`)
+          await appendAppLog(
+            `[Manager]: startServiceCore retry succeeded, elapsed: ${Date.now() - tRetry}ms\n`
+          )
         }
       } else {
         await appendAppLog(`[Manager]: Non-connection error, re-throwing\n`)
@@ -484,7 +543,9 @@ async function startCoreImpl(
     initialized = true
     logCoreStateTransition('RUNNING')
     if (globalTimeout) clearTimeout(globalTimeout)
-    await appendAppLog(`[Manager]: ===== startCore (service mode) completed, total: ${Date.now() - startCoreStartedAt}ms =====\n`)
+    await appendAppLog(
+      `[Manager]: ===== startCore (service mode) completed, total: ${Date.now() - startCoreStartedAt}ms =====\n`
+    )
 
     // Event-driven controller readiness detection:
     // - New Go backend: POST returns ~2ms, WebSocket sends controller_ready ~1s later
@@ -498,18 +559,24 @@ async function startCoreImpl(
       if (!controllerReadyReceived && controllerReadyResolve) {
         controllerReadyResolve()
         controllerReadyResolve = null
-        appendAppLog(`[Manager]: controller_ready not received within ${controllerReadyGracePeriod}ms grace period, falling back to polling\n`).catch(() => { })
+        appendAppLog(
+          `[Manager]: controller_ready not received within ${controllerReadyGracePeriod}ms grace period, falling back to polling\n`
+        ).catch(() => {})
       }
     }, controllerReadyGracePeriod)
 
     return [
       (async (): Promise<void> => {
         if (controllerReadyReceived) {
-          await appendAppLog(`[Manager]: Controller already ready (event received during POST), proceeding to initialization\n`)
+          await appendAppLog(
+            `[Manager]: Controller already ready (event received during POST), proceeding to initialization\n`
+          )
           clearTimeout(controllerReadyTimer)
         } else if (controllerReadyResolve === null) {
           // Set up resolver for the controller_ready event
-          await appendAppLog(`[Manager]: Waiting for controller_ready event (grace period: ${controllerReadyGracePeriod}ms)...\n`)
+          await appendAppLog(
+            `[Manager]: Waiting for controller_ready event (grace period: ${controllerReadyGracePeriod}ms)...\n`
+          )
           await new Promise<void>((resolve) => {
             controllerReadyResolve = resolve
           })
@@ -533,7 +600,9 @@ async function startCoreImpl(
     stdio: detached ? 'ignore' : undefined,
     env: env
   })
-  await appendAppLog(`[Manager]: Core spawned (pid: ${child.pid}), elapsed: ${Date.now() - tSpawn}ms\n`)
+  await appendAppLog(
+    `[Manager]: Core spawned (pid: ${child.pid}), elapsed: ${Date.now() - tSpawn}ms\n`
+  )
   hookWaiter?.attachProcess(child)
   if (child.pid) {
     try {
@@ -545,9 +614,11 @@ async function startCoreImpl(
   if (detached) {
     child.unref()
     if (globalTimeout) clearTimeout(globalTimeout)
-    await appendAppLog(`[Manager]: ===== startCore (detached) completed, total: ${Date.now() - startCoreStartedAt}ms =====\n`)
+    await appendAppLog(
+      `[Manager]: ===== startCore (detached) completed, total: ${Date.now() - startCoreStartedAt}ms =====\n`
+    )
     return new Promise((resolve) => {
-      resolve([new Promise(() => { })])
+      resolve([new Promise(() => {})])
     })
   }
   child.on('close', async (code, signal) => {
@@ -599,7 +670,9 @@ async function startCoreImpl(
 
         if (!controllerReady && isControllerReadyLog(str)) {
           controllerReady = true
-          await appendAppLog(`[Manager]: Controller ready log received, elapsed: ${Date.now() - logReadyStartedAt}ms\n`)
+          await appendAppLog(
+            `[Manager]: Controller ready log received, elapsed: ${Date.now() - logReadyStartedAt}ms\n`
+          )
           resolve([
             new Promise((resolve, reject) => {
               const handleProviderInitialization = async (logLine: string): Promise<void> => {
@@ -613,7 +686,9 @@ async function startCoreImpl(
                 }
 
                 if (providerTracker.isReady(logLine)) {
-                  await appendAppLog(`[Manager]: Provider initialization complete, waiting for Mihomo ready...\n`)
+                  await appendAppLog(
+                    `[Manager]: Provider initialization complete, waiting for Mihomo ready...\n`
+                  )
                   await waitForMihomoReady()
                   initialized = true
                   logCoreStateTransition('RUNNING')
@@ -656,7 +731,8 @@ async function startCoreImpl(
           resolve([completeCoreInitialization(logLevel)])
         })
         .catch((error) => {
-          const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
+          const errorStr =
+            error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
           appendAppLog(`[Manager]: Core ready by hook failed: ${errorStr}\n`)
           reject(error)
         })
@@ -664,7 +740,8 @@ async function startCoreImpl(
   }
 
   await appendAppLog(`[Manager]: Waiting for core ready (mode: ${coreStartupMode})...\n`)
-  const readyPromise = coreStartupMode === 'post-up' ? waitForCoreReadyByHook() : waitForCoreReadyByLog()
+  const readyPromise =
+    coreStartupMode === 'post-up' ? waitForCoreReadyByHook() : waitForCoreReadyByLog()
 
   // Race the core ready promise against the global timeout
   if (globalTimeoutPromise) {
@@ -677,7 +754,7 @@ async function startCoreImpl(
         if (globalTimeout) clearTimeout(globalTimeout)
         // If timeout triggered, kill the child process to prevent orphan
         if (child && !child.killed) {
-          stopChildProcess(child).catch(() => { })
+          stopChildProcess(child).catch(() => {})
           child = undefined as unknown as ChildProcess
         }
         throw error
@@ -710,7 +787,9 @@ export async function stopCore(force = false): Promise<void> {
       await recoverDNS()
     }
   } catch (error) {
-    await appendAppLog(`[Manager]: recover dns failed, ${error instanceof Error ? error.message : String(error)}\n`)
+    await appendAppLog(
+      `[Manager]: recover dns failed, ${error instanceof Error ? error.message : String(error)}\n`
+    )
   }
 
   stopMihomoTraffic()
@@ -733,7 +812,9 @@ export async function stopCore(force = false): Promise<void> {
       await appendAppLog(`[Manager]: Service core stopped, elapsed: ${Date.now() - t0}ms\n`)
     } catch (error) {
       const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
-      await appendAppLog(`[Manager]: stop service core failed, elapsed: ${Date.now() - t0}ms, error: ${errorStr}\n`)
+      await appendAppLog(
+        `[Manager]: stop service core failed, elapsed: ${Date.now() - t0}ms, error: ${errorStr}\n`
+      )
     } finally {
       stopServiceCoreEventStream()
       releaseServiceCoreEventHandler()
@@ -750,7 +831,7 @@ export async function stopCore(force = false): Promise<void> {
   }
 
   const t2 = Date.now()
-  await getAxios(true).catch(() => { })
+  await getAxios(true).catch(() => {})
   await appendAppLog(`[Manager]: Axios connection reset, elapsed: ${Date.now() - t2}ms\n`)
 
   if (existsSync(path.join(dataDir(), 'core.pid'))) {
@@ -772,7 +853,7 @@ export async function stopCore(force = false): Promise<void> {
         // ignore
       }
     }
-    await rm(path.join(dataDir(), 'core.pid')).catch(() => { })
+    await rm(path.join(dataDir(), 'core.pid')).catch(() => {})
     await appendAppLog(`[Manager]: core.pid cleaned up\n`)
   }
 
@@ -817,14 +898,14 @@ async function handleServiceCoreEvent(event: ServiceCoreEvent): Promise<void> {
 
   switch (event.type) {
     case 'started':
-      await getAxios(true).catch(() => { })
+      await getAxios(true).catch(() => {})
       mainWindow?.webContents.send('core-started', event)
       mainWindow?.webContents.send('groupsUpdated')
       mainWindow?.webContents.send('rulesUpdated')
       ipcMain.emit('updateTrayMenu')
       void ensureServiceCoreStreamsStarted().catch((error) => {
         const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
-        appendAppLog(`[Manager]: start service core streams failed: ${errorStr}\n`).catch(() => { })
+        appendAppLog(`[Manager]: start service core streams failed: ${errorStr}\n`).catch(() => {})
       })
       break
     case 'controller_ready':
@@ -837,7 +918,7 @@ async function handleServiceCoreEvent(event: ServiceCoreEvent): Promise<void> {
       break
     case 'takeover':
     case 'ready':
-      await getAxios(true).catch(() => { })
+      await getAxios(true).catch(() => {})
       mainWindow?.webContents.send('core-started', event)
       mainWindow?.webContents.send('groupsUpdated')
       mainWindow?.webContents.send('rulesUpdated')
@@ -892,7 +973,9 @@ async function resumeServiceCoreAfterReconnect(): Promise<void> {
 
   // State machine guard: don't start if already starting/running
   if (coreState === 'STARTING' || coreState === 'RUNNING') {
-    await appendAppLog(`[Manager]: resumeServiceCoreAfterReconnect skipped, coreState=${coreState}\n`)
+    await appendAppLog(
+      `[Manager]: resumeServiceCoreAfterReconnect skipped, coreState=${coreState}\n`
+    )
     return
   }
 
@@ -936,7 +1019,7 @@ function scheduleServiceCoreStreamsRestart(): void {
   serviceCoreStreamsRestartTimer = setTimeout(() => {
     serviceCoreStreamsRestartTimer = null
     restartServiceCoreStreams().catch((error) => {
-      appendAppLog(`[Manager]: restart service core streams failed, ${error}\n`).catch(() => { })
+      appendAppLog(`[Manager]: restart service core streams failed, ${error}\n`).catch(() => {})
     })
   }, 300)
 }
@@ -951,7 +1034,9 @@ async function restartServiceCoreStreams(): Promise<void> {
 }
 
 async function ensureServiceCoreStreamsStarted(): Promise<void> {
-  await appendAppLog(`[Manager]: ensureServiceCoreStreamsStarted (active=${serviceCoreStreamsActive}, starting=${!!serviceCoreStreamsStarting})\n`)
+  await appendAppLog(
+    `[Manager]: ensureServiceCoreStreamsStarted (active=${serviceCoreStreamsActive}, starting=${!!serviceCoreStreamsStarting})\n`
+  )
 
   if (serviceCoreStreamsRestartTimer) {
     clearTimeout(serviceCoreStreamsRestartTimer)
@@ -969,7 +1054,7 @@ async function ensureServiceCoreStreamsStarted(): Promise<void> {
   serviceCoreStreamsStarting = (async () => {
     const t0 = Date.now()
     await appendAppLog(`[Manager]: Service core streams: resetting axios connection...\n`)
-    await getAxios(true).catch(() => { })
+    await getAxios(true).catch(() => {})
     await appendAppLog(`[Manager]: Service core streams: starting traffic...\n`)
     await startMihomoTraffic()
     await appendAppLog(`[Manager]: Service core streams: starting connections...\n`)
@@ -996,12 +1081,16 @@ async function fallbackToElevatedCore(
   reason: unknown
 ): Promise<Promise<void>[]> {
   const reasonStr = reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason)
-  await appendAppLog(`[Manager]: Service unavailable, fallback to elevated core, reason: ${reasonStr}\n`)
+  await appendAppLog(
+    `[Manager]: Service unavailable, fallback to elevated core, reason: ${reasonStr}\n`
+  )
   stopServiceCoreEventStream()
   releaseServiceCoreEventHandler()
   // 不持久化修改 corePermissionMode 配置，保留用户设置的 'service' 模式
   // 这样下次应用重启时仍会尝试使用服务模式，避免重装后配置被意外覆盖
-  await appendAppLog(`[Manager]: Keeping corePermissionMode='service' in config, will retry on next startup\n`)
+  await appendAppLog(
+    `[Manager]: Keeping corePermissionMode='service' in config, will retry on next startup\n`
+  )
   mainWindow?.webContents.send('appConfigUpdated')
   floatingWindow?.webContents.send('appConfigUpdated')
   // Use startCoreImpl directly to avoid deadlock on isStarting mutex
@@ -1046,7 +1135,9 @@ export async function hotReloadCore(): Promise<void> {
 
   // Mutex: prevent concurrent hot-reload attempts (which would cause file write contention)
   if (isReloading) {
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] BLOCKED - another reload in progress, waiting...\n`)
+    await appendAppLog(
+      `[⚙️ hotReloadCore:${reqId}] BLOCKED - another reload in progress, waiting...\n`
+    )
     while (isReloading) {
       await new Promise((r) => setTimeout(r, 100))
     }
@@ -1058,7 +1149,9 @@ export async function hotReloadCore(): Promise<void> {
   try {
     // Only hot-reload if core is running; otherwise fall back to full restart
     if (coreState !== 'RUNNING') {
-      await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Core not RUNNING (state=${coreState}), falling back to restartCore\n`)
+      await appendAppLog(
+        `[⚙️ hotReloadCore:${reqId}] Core not RUNNING (state=${coreState}), falling back to restartCore\n`
+      )
       return restartCore()
     }
 
@@ -1066,7 +1159,9 @@ export async function hotReloadCore(): Promise<void> {
     // 1. Generate the new profile and write config.yaml to disk
     await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Generating profile...\n`)
     await generateProfile()
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Profile generated, elapsed: ${Date.now() - t0}ms\n`)
+    await appendAppLog(
+      `[⚙️ hotReloadCore:${reqId}] Profile generated, elapsed: ${Date.now() - t0}ms\n`
+    )
 
     // 2. Resolve the config file path
     const { diffWorkDir = false } = await getAppConfig()
@@ -1085,10 +1180,11 @@ export async function hotReloadCore(): Promise<void> {
     mainWindow?.webContents.send('groupsUpdated')
     mainWindow?.webContents.send('rulesUpdated')
     ipcMain.emit('updateTrayMenu')
-
   } catch (error) {
     const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] FAILED: ${errorStr}, falling back to restartCore\n`)
+    await appendAppLog(
+      `[⚙️ hotReloadCore:${reqId}] FAILED: ${errorStr}, falling back to restartCore\n`
+    )
     // Fall back to the full restart path
     return restartCore()
   } finally {
@@ -1115,12 +1211,16 @@ export async function restartCore(): Promise<void> {
     const t0 = Date.now()
     await appendAppLog(`[⚙️ restartCore:${reqId}] stopping core...\n`)
     await stopCore()
-    await appendAppLog(`[⚙️ restartCore:${reqId}] stopCore completed, elapsed: ${Date.now() - t0}ms\n`)
+    await appendAppLog(
+      `[⚙️ restartCore:${reqId}] stopCore completed, elapsed: ${Date.now() - t0}ms\n`
+    )
 
     const t1 = Date.now()
     await appendAppLog(`[⚙️ restartCore:${reqId}] starting core...\n`)
     const promises = await startCore()
-    await appendAppLog(`[⚙️ restartCore:${reqId}] startCore completed, elapsed: ${Date.now() - t1}ms\n`)
+    await appendAppLog(
+      `[⚙️ restartCore:${reqId}] startCore completed, elapsed: ${Date.now() - t1}ms\n`
+    )
 
     await appendAppLog(`[⚙️ restartCore:${reqId}] waiting for initialization promises...\n`)
     await Promise.all(promises)
@@ -1133,7 +1233,10 @@ export async function restartCore(): Promise<void> {
     const errorStr = e instanceof Error ? `${e.message}\n${e.stack}` : String(e)
     await appendAppLog(`[⚙️ restartCore:${reqId}] FAILED\n`)
     await appendAppLog(`[Manager]: Error with stack trace: ${errorStr}\n`)
-    dialog.showErrorBox('内核启动出错', `错误: ${e instanceof Error ? e.message : String(e)}\n\n完整堆栈已记录到日志文件:\n${errorStr}`)
+    dialog.showErrorBox(
+      '内核启动出错',
+      `错误: ${e instanceof Error ? e.message : String(e)}\n\n完整堆栈已记录到日志文件:\n${errorStr}`
+    )
   } finally {
     isRestarting = false
   }
