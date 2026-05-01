@@ -70,6 +70,16 @@ export {
 } from './permission'
 export { getDefaultDevice } from './network'
 
+/**
+ * Signal that the system is in a resume-from-sleep cycle.
+ * When set, handleServiceCoreEventStreamState will skip triggering
+ * resumeServiceCoreAfterReconnect(), because the resume handler in
+ * index.ts will take care of starting the core after a network settle delay.
+ */
+export function setSystemIsResuming(v: boolean): void {
+  systemIsResuming = v
+}
+
 const ctlParam = process.platform === 'win32' ? '-ext-ctl-pipe' : '-ext-ctl-unix'
 
 let child: ChildProcess
@@ -82,6 +92,11 @@ let serviceCoreStreamsStarting: Promise<void> | null = null
 let lastServiceCoreEventKey = ''
 let serviceCoreStartupActive = false
 let serviceCoreReconnectResumePromise: Promise<void> | null = null
+/** Flag: system is currently in resume-from-sleep cycle.
+ *  Set by index.ts resume handler BEFORE its 2s network settle delay,
+ *  so that WebSocket reconnection during that window does NOT trigger
+ *  a redundant resumeServiceCoreAfterReconnect → startCore() call. */
+let systemIsResuming = false
 /** Flag: set to true when controller_ready WebSocket event is received */
 let controllerReadyReceived = false
 /** Resolver for the controller_ready event promise, used in service mode startup */
@@ -102,7 +117,7 @@ function logCoreStateTransition(newState: CoreState): void {
   const stackLine = new Error().stack?.split('\n')[3]?.trim() || 'unknown'
   appendAppLog(
     `[STATE:${seq}] 🟢 ${oldState} -> 🔴 ${newState} | Triggered by: ${stackLine}\n`
-  ).catch(() => {})
+  ).catch(() => { })
 }
 
 // Mutex for restartCore to prevent concurrent restart attempts
@@ -293,13 +308,13 @@ async function startCoreImpl(
   let globalTimeout: NodeJS.Timeout | null = null
   const globalTimeoutPromise = !detached
     ? new Promise<never>((_, reject) => {
-        globalTimeout = setTimeout(() => {
-          const elapsed = Date.now() - startCoreStartedAt
-          reject(
-            new Error(`内核启动超时 (${elapsed}ms)，已超过 ${START_CORE_GLOBAL_TIMEOUT}ms 限制`)
-          )
-        }, START_CORE_GLOBAL_TIMEOUT)
-      })
+      globalTimeout = setTimeout(() => {
+        const elapsed = Date.now() - startCoreStartedAt
+        reject(
+          new Error(`内核启动超时 (${elapsed}ms)，已超过 ${START_CORE_GLOBAL_TIMEOUT}ms 限制`)
+        )
+      }, START_CORE_GLOBAL_TIMEOUT)
+    })
     : null
 
   const {
@@ -561,7 +576,7 @@ async function startCoreImpl(
         controllerReadyResolve = null
         appendAppLog(
           `[Manager]: controller_ready not received within ${controllerReadyGracePeriod}ms grace period, falling back to polling\n`
-        ).catch(() => {})
+        ).catch(() => { })
       }
     }, controllerReadyGracePeriod)
 
@@ -618,7 +633,7 @@ async function startCoreImpl(
       `[Manager]: ===== startCore (detached) completed, total: ${Date.now() - startCoreStartedAt}ms =====\n`
     )
     return new Promise((resolve) => {
-      resolve([new Promise(() => {})])
+      resolve([new Promise(() => { })])
     })
   }
   child.on('close', async (code, signal) => {
@@ -754,7 +769,7 @@ async function startCoreImpl(
         if (globalTimeout) clearTimeout(globalTimeout)
         // If timeout triggered, kill the child process to prevent orphan
         if (child && !child.killed) {
-          stopChildProcess(child).catch(() => {})
+          stopChildProcess(child).catch(() => { })
           child = undefined as unknown as ChildProcess
         }
         throw error
@@ -831,7 +846,7 @@ export async function stopCore(force = false): Promise<void> {
   }
 
   const t2 = Date.now()
-  await getAxios(true).catch(() => {})
+  await getAxios(true).catch(() => { })
   await appendAppLog(`[Manager]: Axios connection reset, elapsed: ${Date.now() - t2}ms\n`)
 
   if (existsSync(path.join(dataDir(), 'core.pid'))) {
@@ -853,7 +868,7 @@ export async function stopCore(force = false): Promise<void> {
         // ignore
       }
     }
-    await rm(path.join(dataDir(), 'core.pid')).catch(() => {})
+    await rm(path.join(dataDir(), 'core.pid')).catch(() => { })
     await appendAppLog(`[Manager]: core.pid cleaned up\n`)
   }
 
@@ -898,14 +913,14 @@ async function handleServiceCoreEvent(event: ServiceCoreEvent): Promise<void> {
 
   switch (event.type) {
     case 'started':
-      await getAxios(true).catch(() => {})
+      await getAxios(true).catch(() => { })
       mainWindow?.webContents.send('core-started', event)
       mainWindow?.webContents.send('groupsUpdated')
       mainWindow?.webContents.send('rulesUpdated')
       ipcMain.emit('updateTrayMenu')
       void ensureServiceCoreStreamsStarted().catch((error) => {
         const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
-        appendAppLog(`[Manager]: start service core streams failed: ${errorStr}\n`).catch(() => {})
+        appendAppLog(`[Manager]: start service core streams failed: ${errorStr}\n`).catch(() => { })
       })
       break
     case 'controller_ready':
@@ -918,7 +933,7 @@ async function handleServiceCoreEvent(event: ServiceCoreEvent): Promise<void> {
       break
     case 'takeover':
     case 'ready':
-      await getAxios(true).catch(() => {})
+      await getAxios(true).catch(() => { })
       mainWindow?.webContents.send('core-started', event)
       mainWindow?.webContents.send('groupsUpdated')
       mainWindow?.webContents.send('rulesUpdated')
@@ -934,6 +949,11 @@ async function handleServiceCoreEvent(event: ServiceCoreEvent): Promise<void> {
       stopMihomoMemory()
       serviceCoreStreamsActive = false
       setMihomoLogSource('out')
+      // 同步状态机到 FAILED，防止后续 hotReloadCore 等操作错误地
+      // 认为核心仍在运行而进入重启循环（如 post-up 超时后继续重试）
+      if (coreState === 'RUNNING') {
+        logCoreStateTransition('FAILED')
+      }
       mainWindow?.webContents.send('core-stopped', event)
       if (event.type === 'restart_failed') {
         mainWindow?.webContents.reload()
@@ -953,7 +973,10 @@ async function handleServiceCoreEventStreamState(
   if (state !== 'connected') {
     return
   }
-  if (serviceCoreStartupActive || serviceCoreReconnectResumePromise) {
+  // 系统正在从休眠中恢复：resume 处理器（index.ts）将在网络稳定后
+  // 主动调 startCore()，此处跳过 resumeServiceCoreAfterReconnect 以避免
+  // 两路并行 startCore 竞争导致连接混乱。
+  if (serviceCoreStartupActive || serviceCoreReconnectResumePromise || systemIsResuming) {
     return
   }
 
@@ -1019,7 +1042,7 @@ function scheduleServiceCoreStreamsRestart(): void {
   serviceCoreStreamsRestartTimer = setTimeout(() => {
     serviceCoreStreamsRestartTimer = null
     restartServiceCoreStreams().catch((error) => {
-      appendAppLog(`[Manager]: restart service core streams failed, ${error}\n`).catch(() => {})
+      appendAppLog(`[Manager]: restart service core streams failed, ${error}\n`).catch(() => { })
     })
   }, 300)
 }
@@ -1054,7 +1077,7 @@ async function ensureServiceCoreStreamsStarted(): Promise<void> {
   serviceCoreStreamsStarting = (async () => {
     const t0 = Date.now()
     await appendAppLog(`[Manager]: Service core streams: resetting axios connection...\n`)
-    await getAxios(true).catch(() => {})
+    await getAxios(true).catch(() => { })
     await appendAppLog(`[Manager]: Service core streams: starting traffic...\n`)
     await startMihomoTraffic()
     await appendAppLog(`[Manager]: Service core streams: starting connections...\n`)
@@ -1147,6 +1170,16 @@ export async function hotReloadCore(): Promise<void> {
   isReloading = true
 
   try {
+    // 核心已明确失败（如 post-up 超时导致内核退出），
+    // 此时不应继续尝试 restartCore，否则会陷入「失败→重试→再失败」的死循环。
+    // 直接抛出错误，让调用方（如 changeCurrentProfile）回滚配置变更并展示错误。
+    if (coreState === 'FAILED') {
+      await appendAppLog(
+        `[⚙️ hotReloadCore:${reqId}] Core state is FAILED, throwing immediately to prevent restart loop\n`
+      )
+      throw new Error('核心已因启动失败而停止，请检查物理网络连接后手动重启内核')
+    }
+
     // Only hot-reload if core is running; otherwise fall back to full restart
     if (coreState !== 'RUNNING') {
       await appendAppLog(

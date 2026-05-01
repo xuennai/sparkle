@@ -12,7 +12,7 @@ import {
   ipcMain
 } from 'electron'
 import { addOverrideItem, addProfileItem, getAppConfig, patchControledMihomoConfig } from './config'
-import { quitWithoutCore, startCore, stopCore } from './core/manager'
+import { quitWithoutCore, setSystemIsResuming, startCore, stopCore } from './core/manager'
 import { disableSysProxySync, triggerSysProxy } from './sys/sysproxy'
 import icon from '../../resources/icon.png?asset'
 import { createTray } from './resolve/tray'
@@ -27,6 +27,7 @@ import { startMonitor } from './resolve/trafficMonitor'
 import { showFloatingWindow } from './resolve/floatingWindow'
 import { getAppConfigSync } from './config/app'
 import { getUserAgent } from './utils/userAgent'
+import { appendAppLog } from './utils/log'
 
 let quitTimeout: NodeJS.Timeout | null = null
 export let mainWindow: BrowserWindow | null = null
@@ -225,6 +226,40 @@ powerMonitor.on('shutdown', async () => {
   await triggerSysProxy(false, false, true)
   await stopCore()
   exitApp()
+})
+
+// 系统休眠时主动停止核心，避免唤醒后命名管道（\\.\pipe\sparkle\service）
+// 状态被挂起/重置导致 IPC 通信断裂（ENOENT 错误）。
+powerMonitor.on('suspend', async () => {
+  if (quitTimeout) {
+    clearTimeout(quitTimeout)
+    quitTimeout = null
+  }
+  await appendAppLog(`[Main]: System suspending, stopping core and proxy\n`)
+  await triggerSysProxy(false, false, true)
+  await stopCore()
+})
+
+// 系统唤醒后重建命名管道连接并重启核心。
+// 等待网络栈稳定（2s）后再操作，避免 WLAN 接口尚未就绪导致 post-up 超时。
+powerMonitor.on('resume', async () => {
+  await appendAppLog(`[Main]: System resumed, restarting core after network settles\n`)
+  // 设置系统唤醒标志，防止 WebSocket 重连在等待期间触发多余的
+  // resumeServiceCoreAfterReconnect → startCore() 调用，导致两路并行启动竞争。
+  setSystemIsResuming(true)
+  // 给网络栈和 WLAN 接口一点恢复时间
+  await new Promise((resolve) => setTimeout(resolve, 2000))
+  try {
+    const promises = await startCore()
+    await Promise.all(promises)
+    await appendAppLog(`[Main]: Core restarted successfully after resume\n`)
+  } catch (e) {
+    const errorStr = e instanceof Error ? `${e.message}\n${e.stack}` : String(e)
+    await appendAppLog(`[Main]: Core restart after resume failed: ${errorStr}\n`)
+    dialog.showErrorBox('内核启动出错', `系统唤醒后内核启动失败：${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    setSystemIsResuming(false)
+  }
 })
 
 app.on('will-quit', () => {
@@ -486,8 +521,8 @@ export async function createWindow(appConfig?: AppConfig): Promise<void> {
       titleBarOverlay: useWindowFrame
         ? false
         : {
-            height: 49
-          },
+          height: 49
+        },
       autoHideMenuBar: true,
       ...(process.platform === 'linux' ? { icon: icon } : {}),
       webPreferences: {
@@ -607,8 +642,8 @@ export async function showMainWindow(): Promise<void> {
     await createWindow()
     if (mainWindow !== null) {
       windowShown = true
-      ;(mainWindow as BrowserWindow).show()
-      ;(mainWindow as BrowserWindow).focusOnWebView()
+        ; (mainWindow as BrowserWindow).show()
+        ; (mainWindow as BrowserWindow).focusOnWebView()
     }
   }
 }

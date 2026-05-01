@@ -21,7 +21,6 @@ import { deepMerge } from '../utils/merge'
 import vm from 'vm'
 import { existsSync, writeFileSync } from 'fs'
 import path from 'path'
-import { getDefaultDevice } from './network'
 
 let runtimeConfigStr: string,
   rawProfileStr: string,
@@ -41,9 +40,9 @@ function _refreshRuntimeConfigStr(): void {
   if (_disabledRuleIndices.length > 0) {
     const disabledSet = new Set(_disabledRuleIndices)
     const allRules = [...rules]
-    ;(runtimeConfig as any).rules = rules.filter((_, i) => !disabledSet.has(i))
+      ; (runtimeConfig as any).rules = rules.filter((_, i) => !disabledSet.has(i))
     runtimeConfigStr = stringifyYaml(runtimeConfig)
-    ;(runtimeConfig as any).rules = allRules // 恢复原始 rules
+      ; (runtimeConfig as any).rules = allRules // 恢复原始 rules
   } else {
     runtimeConfigStr = stringifyYaml(runtimeConfig)
   }
@@ -97,8 +96,8 @@ function injectTunBypassRule(profile: MihomoConfig): void {
   // 注入到规则列表最顶部，确保最高匹配优先级
   filtered.unshift(bypassRule)
 
-  // 将处理后的 rules 写回 profile（使用 as any 与已有代码风格一致）
-  ;(profile as any).rules = filtered
+    // 将处理后的 rules 写回 profile（使用 as any 与已有代码风格一致）
+    ; (profile as any).rules = filtered
 }
 
 export async function generateProfile(): Promise<void> {
@@ -279,12 +278,13 @@ async function cleanTunConfig(profile: MihomoConfig): Promise<void> {
   }
   if (tunConfig['auto-detect-interface'] !== false) {
     delete tunConfig['auto-detect-interface']
+    // 当 auto-detect-interface 启用时，不设置 interface-name。
+    // 原因：将 interface-name 固定为特定设备（如 WLAN）会覆盖
+    // mihomo 的动态接口检测，当物理接口在休眠唤醒或网络切换后
+    // 不可用时，TUN 绑定失效导致 post-up 超时，内核崩溃退出。
+    // 由 mihomo 自身动态检测接口可以正确处理网络状态变化。
     if (!profile['interface-name']) {
-      try {
-        partialProfile['interface-name'] = await getDefaultDevice()
-      } catch {
-        // getDefaultDevice failed (no network), don't block startup
-      }
+      delete partialProfile['interface-name']
     }
   }
 
