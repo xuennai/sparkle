@@ -42,7 +42,7 @@ import {
   type ServiceCoreEvent,
   type ServiceCoreLaunchProfile
 } from '../service/api'
-import { appendAppLog, createLogWritable, setMihomoLogSource } from '../utils/log'
+import { appendAppLog, appendAppLogJson, createLogWritable, setMihomoLogSource } from '../utils/log'
 import { createCoreHookWaiter, createCoreStartupHook } from './startupHook'
 import { stopChildProcess } from './process-control'
 import {
@@ -115,9 +115,13 @@ function logCoreStateTransition(newState: CoreState): void {
   const oldState = coreState
   coreState = newState
   const stackLine = new Error().stack?.split('\n')[3]?.trim() || 'unknown'
-  appendAppLog(
-    `[STATE:${seq}] 🟢 ${oldState} -> 🔴 ${newState} | Triggered by: ${stackLine}\n`
-  ).catch(() => { })
+  appendAppLogJson({
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    module: 'Manager',
+    message: `Core state transition: ${oldState} -> ${newState}`,
+    data: { seq, oldState, newState, triggeredBy: stackLine }
+  }).catch(() => { })
 }
 
 // Mutex for restartCore to prevent concurrent restart attempts
@@ -246,22 +250,23 @@ async function waitForServiceCoreConnection(
 
 export async function startCore(detached = false): Promise<Promise<void>[]> {
   const reqId = Math.random().toString(36).substring(7)
+  console.trace(`[startCore:${reqId}] ENTER - detached=${detached}, currentState=${coreState}`)
   await appendAppLog(
-    `[⚙️ startCore:${reqId}] ENTER - detached=${detached}, currentState=${coreState}\n`
+    `[startCore:${reqId}] ENTER - detached=${detached}, currentState=${coreState}\n`
   )
 
   // Mutex: prevent concurrent startCore attempts (except detached mode)
   if (!detached) {
     if (isStarting) {
       await appendAppLog(
-        `[⚙️ startCore:${reqId}] BLOCKED - startCore already in progress, waiting...\n`
+        `[startCore:${reqId}] BLOCKED - startCore already in progress, waiting...\n`
       )
       // Wait for the current start to finish, then return empty (caller should re-check)
       while (isStarting) {
         await new Promise((r) => setTimeout(r, 100))
       }
       await appendAppLog(
-        `[⚙️ startCore:${reqId}] BLOCKED - previous startCore completed, returning empty\n`
+        `[startCore:${reqId}] BLOCKED - previous startCore completed, returning empty\n`
       )
       return []
     }
@@ -287,7 +292,7 @@ export async function startCore(detached = false): Promise<Promise<void>[]> {
       isStarting = false
     }
     await appendAppLog(
-      `[⚙️ startCore:${reqId}] EXIT - state=${coreState}, elapsed=${Date.now() - startCoreStartedAt}ms\n`
+      `[startCore:${reqId}] EXIT - state=${coreState}, elapsed=${Date.now() - startCoreStartedAt}ms\n`
     )
   }
 }
@@ -781,15 +786,16 @@ async function startCoreImpl(
 
 export async function stopCore(force = false): Promise<void> {
   const reqId = Math.random().toString(36).substring(7)
-  await appendAppLog(`[⚙️ stopCore:${reqId}] ENTER - force=${force}, currentState=${coreState}\n`)
+  console.trace(`[stopCore:${reqId}] ENTER - force=${force}, currentState=${coreState}`)
+  await appendAppLog(`[stopCore:${reqId}] ENTER - force=${force}, currentState=${coreState}\n`)
 
   // State machine: if already IDLE or STOPPING, skip
   if (coreState === 'IDLE') {
-    await appendAppLog(`[⚙️ stopCore:${reqId}] SKIP - core already IDLE\n`)
+    await appendAppLog(`[stopCore:${reqId}] SKIP - core already IDLE\n`)
     return
   }
   if (coreState === 'STOPPING') {
-    await appendAppLog(`[⚙️ stopCore:${reqId}] SKIP - already STOPPING\n`)
+    await appendAppLog(`[stopCore:${reqId}] SKIP - already STOPPING\n`)
     return
   }
 
@@ -873,7 +879,7 @@ export async function stopCore(force = false): Promise<void> {
   }
 
   logCoreStateTransition('IDLE')
-  await appendAppLog(`[⚙️ stopCore:${reqId}] EXIT - elapsed=${Date.now() - stopCoreStartedAt}ms\n`)
+  await appendAppLog(`[stopCore:${reqId}] EXIT - elapsed=${Date.now() - stopCoreStartedAt}ms\n`)
 }
 
 function ensureServiceCoreEventHandler(): void {
@@ -1154,18 +1160,19 @@ function isServiceConnectionError(error: unknown): boolean {
  */
 export async function hotReloadCore(): Promise<void> {
   const reqId = Math.random().toString(36).substring(7)
-  await appendAppLog(`[⚙️ hotReloadCore:${reqId}] ENTER - currentState=${coreState}\n`)
+  console.trace(`[hotReloadCore:${reqId}] ENTER - currentState=${coreState}`)
+  await appendAppLog(`[hotReloadCore:${reqId}] ENTER - currentState=${coreState}\n`)
 
   // Mutex: prevent concurrent hot-reload attempts (which would cause file write contention)
   if (isReloading) {
     await appendAppLog(
-      `[⚙️ hotReloadCore:${reqId}] BLOCKED - another reload in progress, waiting...\n`
+      `[hotReloadCore:${reqId}] BLOCKED - another reload in progress, waiting...\n`
     )
     while (isReloading) {
       await new Promise((r) => setTimeout(r, 100))
     }
     // After waiting, re-check core state and proceed (don't silently drop the request)
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Previous reload completed, proceeding...\n`)
+    await appendAppLog(`[hotReloadCore:${reqId}] Previous reload completed, proceeding...\n`)
   }
   isReloading = true
 
@@ -1175,7 +1182,7 @@ export async function hotReloadCore(): Promise<void> {
     // 直接抛出错误，让调用方（如 changeCurrentProfile）回滚配置变更并展示错误。
     if (coreState === 'FAILED') {
       await appendAppLog(
-        `[⚙️ hotReloadCore:${reqId}] Core state is FAILED, throwing immediately to prevent restart loop\n`
+        `[hotReloadCore:${reqId}] Core state is FAILED, throwing immediately to prevent restart loop\n`
       )
       throw new Error('核心已因启动失败而停止，请检查物理网络连接后手动重启内核')
     }
@@ -1183,30 +1190,30 @@ export async function hotReloadCore(): Promise<void> {
     // Only hot-reload if core is running; otherwise fall back to full restart
     if (coreState !== 'RUNNING') {
       await appendAppLog(
-        `[⚙️ hotReloadCore:${reqId}] Core not RUNNING (state=${coreState}), falling back to restartCore\n`
+        `[hotReloadCore:${reqId}] Core not RUNNING (state=${coreState}), falling back to restartCore\n`
       )
       return restartCore()
     }
 
     const t0 = Date.now()
     // 1. Generate the new profile and write config.yaml to disk
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Generating profile...\n`)
+    await appendAppLog(`[hotReloadCore:${reqId}] Generating profile...\n`)
     await generateProfile()
     await appendAppLog(
-      `[⚙️ hotReloadCore:${reqId}] Profile generated, elapsed: ${Date.now() - t0}ms\n`
+      `[hotReloadCore:${reqId}] Profile generated, elapsed: ${Date.now() - t0}ms\n`
     )
 
     // 2. Resolve the config file path
     const { diffWorkDir = false } = await getAppConfig()
     const { current } = await getProfileConfig()
     const configPath = mihomoWorkConfigPath(diffWorkDir ? current : 'work')
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Config path: ${configPath}\n`)
+    await appendAppLog(`[hotReloadCore:${reqId}] Config path: ${configPath}\n`)
 
     // 3. Send PUT /configs?force=true to Mihomo controller
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Sending hot-reload request...\n`)
+    await appendAppLog(`[hotReloadCore:${reqId}] Sending hot-reload request...\n`)
     await mihomoReloadConfig(configPath)
     const elapsed = Date.now() - t0
-    await appendAppLog(`[⚙️ hotReloadCore:${reqId}] Hot reload SUCCESS, elapsed: ${elapsed}ms\n`)
+    await appendAppLog(`[hotReloadCore:${reqId}] Hot reload SUCCESS, elapsed: ${elapsed}ms\n`)
 
     // 4. Notify frontend to refresh groups, rules, profile config and tray menu
     mainWindow?.webContents.send('profileConfigUpdated')
@@ -1216,7 +1223,7 @@ export async function hotReloadCore(): Promise<void> {
   } catch (error) {
     const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
     await appendAppLog(
-      `[⚙️ hotReloadCore:${reqId}] FAILED: ${errorStr}, falling back to restartCore\n`
+      `[hotReloadCore:${reqId}] FAILED: ${errorStr}, falling back to restartCore\n`
     )
     // Fall back to the full restart path
     return restartCore()
@@ -1227,12 +1234,12 @@ export async function hotReloadCore(): Promise<void> {
 
 export async function restartCore(): Promise<void> {
   const reqId = Math.random().toString(36).substring(7)
-  await appendAppLog(`[⚙️ restartCore:${reqId}] ENTER - currentState=${coreState}\n`)
+  console.trace(`[restartCore:${reqId}] ENTER - currentState=${coreState}`)
+  await appendAppLog(`[restartCore:${reqId}] ENTER - currentState=${coreState}\n`)
 
   // Mutex: prevent concurrent restart attempts
   if (isRestarting) {
-    await appendAppLog(`[⚙️ restartCore:${reqId}] BLOCKED - already in progress, ignoring\n`)
-    console.warn('[Manager] restartCore already in progress, ignoring duplicate request.')
+    await appendAppLog(`[restartCore:${reqId}] BLOCKED - already in progress, ignoring\n`)
     return
   }
   isRestarting = true
@@ -1242,29 +1249,29 @@ export async function restartCore(): Promise<void> {
 
   try {
     const t0 = Date.now()
-    await appendAppLog(`[⚙️ restartCore:${reqId}] stopping core...\n`)
+    await appendAppLog(`[restartCore:${reqId}] stopping core...\n`)
     await stopCore()
     await appendAppLog(
-      `[⚙️ restartCore:${reqId}] stopCore completed, elapsed: ${Date.now() - t0}ms\n`
+      `[restartCore:${reqId}] stopCore completed, elapsed: ${Date.now() - t0}ms\n`
     )
 
     const t1 = Date.now()
-    await appendAppLog(`[⚙️ restartCore:${reqId}] starting core...\n`)
+    await appendAppLog(`[restartCore:${reqId}] starting core...\n`)
     const promises = await startCore()
     await appendAppLog(
-      `[⚙️ restartCore:${reqId}] startCore completed, elapsed: ${Date.now() - t1}ms\n`
+      `[restartCore:${reqId}] startCore completed, elapsed: ${Date.now() - t1}ms\n`
     )
 
-    await appendAppLog(`[⚙️ restartCore:${reqId}] waiting for initialization promises...\n`)
+    await appendAppLog(`[restartCore:${reqId}] waiting for initialization promises...\n`)
     await Promise.all(promises)
-    await appendAppLog(`[⚙️ restartCore:${reqId}] initialization completed\n`)
+    await appendAppLog(`[restartCore:${reqId}] initialization completed\n`)
 
     console.timeEnd(restartTimingLabel)
-    await appendAppLog(`[⚙️ restartCore:${reqId}] EXIT - success, total: ${Date.now() - t0}ms\n`)
+    await appendAppLog(`[restartCore:${reqId}] EXIT - success, total: ${Date.now() - t0}ms\n`)
   } catch (e) {
     console.timeEnd(restartTimingLabel)
     const errorStr = e instanceof Error ? `${e.message}\n${e.stack}` : String(e)
-    await appendAppLog(`[⚙️ restartCore:${reqId}] FAILED\n`)
+    await appendAppLog(`[restartCore:${reqId}] FAILED\n`)
     await appendAppLog(`[Manager]: Error with stack trace: ${errorStr}\n`)
     dialog.showErrorBox(
       '内核启动出错',

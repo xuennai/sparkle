@@ -19,6 +19,7 @@ import { createTray } from './resolve/tray'
 import { createApplicationMenu } from './resolve/menu'
 import { init } from './utils/init'
 import { join } from 'path'
+import { appendFileSync } from 'fs'
 import { initShortcut } from './resolve/shortcut'
 import { spawn } from 'child_process'
 import { initProfileUpdater } from './core/profileUpdater'
@@ -27,7 +28,7 @@ import { startMonitor } from './resolve/trafficMonitor'
 import { showFloatingWindow } from './resolve/floatingWindow'
 import { getAppConfigSync } from './config/app'
 import { getUserAgent } from './utils/userAgent'
-import { appendAppLog } from './utils/log'
+import { appendAppLogJson } from './utils/log'
 
 let quitTimeout: NodeJS.Timeout | null = null
 export let mainWindow: BrowserWindow | null = null
@@ -223,27 +224,106 @@ powerMonitor.on('shutdown', async () => {
     clearTimeout(quitTimeout)
     quitTimeout = null
   }
+  await appendAppLogJson({
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    module: 'Main',
+    message: 'System shutdown signal received, stopping core and proxy'
+  })
   await triggerSysProxy(false, false, true)
   await stopCore()
   exitApp()
 })
 
-// 系统休眠时主动停止核心，避免唤醒后命名管道（\\.\pipe\sparkle\service）
-// 状态被挂起/重置导致 IPC 通信断裂（ENOENT 错误）。
+// 防抖定时器：用于区分真实 suspend 和硬件/驱动误发的假信号。
+// 某些老旧硬件（如 ThinkPad E450）的电源管理芯片或网卡驱动会在高负载场景下
+// 误发 suspend 广播，但系统内核并未真正进入低功耗状态（SleepStudy 无记录）。
+// 收到信号后进入观察期：若期间收到 resume 则取消操作；
+// 若观察期结束进程仍在运行，说明是假信号，也取消操作。
+let suspendDebounceTimer: NodeJS.Timeout | null = null
+const SUSPEND_DEBOUNCE_MS = 3000
+
 powerMonitor.on('suspend', async () => {
   if (quitTimeout) {
     clearTimeout(quitTimeout)
     quitTimeout = null
   }
-  await appendAppLog(`[Main]: System suspending, stopping core and proxy\n`)
-  await triggerSysProxy(false, false, true)
-  await stopCore()
+
+  // 清除上一次未触发的防抖定时器
+  if (suspendDebounceTimer) {
+    clearTimeout(suspendDebounceTimer)
+    suspendDebounceTimer = null
+  }
+
+  const suspendTimestamp = new Date().toISOString()
+  await appendAppLogJson({
+    timestamp: suspendTimestamp,
+    level: 'info',
+    module: 'Main',
+    message: 'Suspend signal received, entering debounce window',
+    data: { debounceMs: SUSPEND_DEBOUNCE_MS }
+  })
+
+  // 捕获 powercfg /requests 快照，帮助诊断是谁/什么驱动触发了休眠
+  try {
+    const { exec } = await import('child_process')
+    const { promisify } = await import('util')
+    const execAsync = promisify(exec)
+    const { stdout } = await execAsync('powercfg /requests', { timeout: 5000 })
+    await appendAppLogJson({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      module: 'Main',
+      message: 'Powercfg requests snapshot at suspend',
+      data: { powercfgRequests: stdout }
+    })
+  } catch (e) {
+    await appendAppLogJson({
+      timestamp: new Date().toISOString(),
+      level: 'warn',
+      module: 'Main',
+      message: 'Failed to capture powercfg /requests during suspend',
+      error: e instanceof Error ? e.message : String(e)
+    })
+  }
+
+  // 防抖：延迟执行 stopCore，给 resume 事件一个取消的机会
+  suspendDebounceTimer = setTimeout(async () => {
+    suspendDebounceTimer = null
+    await appendAppLogJson({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      module: 'Main',
+      message: 'Debounce window elapsed, system is truly suspending, stopping core and proxy'
+    })
+    await triggerSysProxy(false, false, true)
+    await stopCore()
+  }, SUSPEND_DEBOUNCE_MS)
 })
 
 // 系统唤醒后重建命名管道连接并重启核心。
+// 同时用于取消 suspend 防抖：如果在观察期内收到 resume，说明是假信号。
 // 等待网络栈稳定（2s）后再操作，避免 WLAN 接口尚未就绪导致 post-up 超时。
 powerMonitor.on('resume', async () => {
-  await appendAppLog(`[Main]: System resumed, restarting core after network settles\n`)
+  // 如果防抖定时器还在，说明是假 suspend 信号，取消 stopCore
+  if (suspendDebounceTimer) {
+    clearTimeout(suspendDebounceTimer)
+    suspendDebounceTimer = null
+    await appendAppLogJson({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      module: 'Main',
+      message: 'False suspend detected: resume received within debounce window, core stop cancelled'
+    })
+    return
+  }
+
+  await appendAppLogJson({
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    module: 'Main',
+    message: 'System resumed, restarting core after network settles'
+  })
   // 设置系统唤醒标志，防止 WebSocket 重连在等待期间触发多余的
   // resumeServiceCoreAfterReconnect → startCore() 调用，导致两路并行启动竞争。
   setSystemIsResuming(true)
@@ -252,10 +332,21 @@ powerMonitor.on('resume', async () => {
   try {
     const promises = await startCore()
     await Promise.all(promises)
-    await appendAppLog(`[Main]: Core restarted successfully after resume\n`)
+    await appendAppLogJson({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      module: 'Main',
+      message: 'Core restarted successfully after resume'
+    })
   } catch (e) {
-    const errorStr = e instanceof Error ? `${e.message}\n${e.stack}` : String(e)
-    await appendAppLog(`[Main]: Core restart after resume failed: ${errorStr}\n`)
+    await appendAppLogJson({
+      timestamp: new Date().toISOString(),
+      level: 'error',
+      module: 'Main',
+      message: 'Core restart after resume failed',
+      error: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined
+    })
     dialog.showErrorBox('内核启动出错', `系统唤醒后内核启动失败：${e instanceof Error ? e.message : String(e)}`)
   } finally {
     setSystemIsResuming(false)
@@ -316,6 +407,39 @@ app.whenReady().then(async () => {
       // ignore
     }
   })()
+
+  // 网络接口变化监控（仅 Windows）：监听 TUN 虚拟网卡和物理网卡的状态变化，
+  // 帮助诊断断流是否由网络接口闪断引起。
+  // 日志写入 userData/network_evidence.log
+  if (process.platform === 'win32') {
+    const networkEvidencePath = join(app.getPath('userData'), 'network_evidence.log')
+
+    // 启动一个后台 PowerShell 进程，通过 WMI 监听网络接口状态变化
+    const psScript = `
+      $logPath = '${networkEvidencePath.replace(/'/g, "''")}'
+      Register-WmiEvent -Query "SELECT * FROM __InstanceModificationEvent WITHIN 2 WHERE TargetInstance ISA 'Win32_NetworkAdapter' AND TargetInstance.NetConnectionStatus != PreviousInstance.NetConnectionStatus" -Action {
+        $adapter = $Event.SourceEventArgs.NewEvent.TargetInstance
+        $status = if ($adapter.NetConnectionStatus -eq 2) { "Connected" } else { "Disconnected/Error: $($adapter.NetConnectionStatus)" }
+        $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        $msg = "[$time] NETWORK_ADAPTER_CHANGE: $($adapter.Name) (${'$'}{$adapter.DeviceID}) -> $status"
+        Add-Content -Path $logPath -Value $msg
+      } | Out-Null
+      # Keep process alive
+      while($true) { Start-Sleep -Seconds 10 }
+    `
+    const psProcess = spawn('powershell', ['-NoProfile', '-Command', psScript], {
+      detached: true,
+      stdio: 'ignore'
+    })
+    psProcess.unref()
+    appendAppLogJson({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      module: 'Main',
+      message: 'Network adapter change monitor started (WMI)',
+      data: { pid: psProcess.pid, logPath: networkEvidencePath }
+    }).catch(() => { })
+  }
 
   await createWindowPromise
 
@@ -533,6 +657,50 @@ export async function createWindow(appConfig?: AppConfig): Promise<void> {
       }
     })
     mainWindowState.manage(mainWindow)
+
+    // 底层 Windows 电源广播钩子 (WM_POWERBROADCAST = 0x0218)
+    // 用于捕获原始电源事件，与 Electron powerMonitor 对比验证。
+    // 日志写入 userData/power_evidence.log，不依赖 app 日志系统。
+    const powerEvidencePath = join(app.getPath('userData'), 'power_evidence.log')
+    const wmPowerbroadcast = 0x0218
+    const PBT_APMSUSPEND = 0x0004
+    const PBT_APMRESUMEAUTOMATIC = 0x0012
+    const PBT_APMPOWERSTATUSCHANGE = 0x000A
+    const PBT_APMRESUMESUSPEND = 0x0007
+    const PBT_APMQUERYSUSPEND = 0x0000
+    const PBT_APMQUERYSUSPENDFAILED = 0x0002
+
+    mainWindow.hookWindowMessage(wmPowerbroadcast, (wParam, _lParam) => {
+      const wp = wParam.readUInt32LE(0)
+      let eventName = 'UNKNOWN'
+      switch (wp) {
+        case PBT_APMSUSPEND:
+          eventName = 'PBT_APMSUSPEND (system suspending)'
+          break
+        case PBT_APMRESUMEAUTOMATIC:
+          eventName = 'PBT_APMRESUMEAUTOMATIC (system resumed)'
+          break
+        case PBT_APMRESUMESUSPEND:
+          eventName = 'PBT_APMRESUMESUSPEND (system resumed after suspend)'
+          break
+        case PBT_APMPOWERSTATUSCHANGE:
+          eventName = 'PBT_APMPOWERSTATUSCHANGE (power status changed)'
+          break
+        case PBT_APMQUERYSUSPEND:
+          eventName = 'PBT_APMQUERYSUSPEND (system querying suspend)'
+          break
+        case PBT_APMQUERYSUSPENDFAILED:
+          eventName = 'PBT_APMQUERYSUSPENDFAILED (suspend query denied)'
+          break
+      }
+      const logLine = `[${new Date().toISOString()}] WM_POWERBROADCAST wParam=0x${wp.toString(16)} -> ${eventName}\n`
+      try {
+        appendFileSync(powerEvidencePath, logLine)
+      } catch {
+        // ignore write errors
+      }
+    })
+
     mainWindow.on('ready-to-show', async () => {
       const { silentStart = false } = await getAppConfig()
       if (!silentStart) {
@@ -556,9 +724,13 @@ export async function createWindow(appConfig?: AppConfig): Promise<void> {
         failLoadRetryCount++
         mainWindow?.webContents.reload()
       } else {
-        console.error(
-          `[Main]: did-fail-load exceeded max retries (${MAX_FAIL_LOAD_RETRIES}), errorCode: ${errorCode}, description: ${errorDescription}`
-        )
+        appendAppLogJson({
+          timestamp: new Date().toISOString(),
+          level: 'error',
+          module: 'Main',
+          message: 'did-fail-load exceeded max retries',
+          data: { errorCode, errorDescription, maxRetries: MAX_FAIL_LOAD_RETRIES }
+        }).catch(() => { })
       }
     })
     // 页面加载成功后重置重试计数
