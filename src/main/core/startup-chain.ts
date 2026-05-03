@@ -91,10 +91,28 @@ export function createProviderInitializationTracker(
 }
 
 export function isControllerListenError(logLine: string): boolean {
-  return (
-    (process.platform !== 'win32' && logLine.includes('External controller unix listen error')) ||
-    (process.platform === 'win32' && logLine.includes('External controller pipe listen error'))
-  )
+  // Unix: named pipe / unix socket listen error
+  if (process.platform !== 'win32') {
+    return logLine.includes('External controller unix listen error')
+  }
+
+  // Windows: named pipe listen error (ext-ctl-pipe mode)
+  if (logLine.includes('External controller pipe listen error')) {
+    return true
+  }
+
+  // Windows: TCP listen error (e.g., when using ext-ctl with TCP fallback,
+  // or when the mihomo service mode uses TCP 127.0.0.2:9090).
+  // This catches the "bind: Only one usage of each socket address" error
+  // that occurs when the previous instance's port is still in TIME_WAIT.
+  if (
+    logLine.includes('External controller listen error') &&
+    logLine.includes('bind:')
+  ) {
+    return true
+  }
+
+  return false
 }
 
 export function isControllerReadyLog(logLine: string): boolean {

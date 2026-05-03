@@ -131,6 +131,11 @@ let isQuitting = false,
 
 let lastQuitAttempt = 0
 
+/** Maximum time (ms) to wait for stopCore() during app quit before force-exiting.
+ *  When the mihomo kernel becomes a zombie process after a deadlock, stopCore()
+ *  may hang indefinitely. This timeout ensures the app can still exit. */
+const QUIT_STOP_CORE_TIMEOUT = 20000
+
 export function setNotQuitDialog(): void {
   notQuitDialog = true
 }
@@ -189,7 +194,7 @@ app.on('before-quit', async (e) => {
         quitTimeout = null
       }
       await triggerSysProxy(false, false)
-      await stopCore()
+      await stopCoreWithTimeout()
       exitApp()
       return
     }
@@ -204,7 +209,7 @@ app.on('before-quit', async (e) => {
         quitTimeout = null
       }
       await triggerSysProxy(false, false)
-      await stopCore()
+      await stopCoreWithTimeout()
       exitApp()
     }
   } else if (notQuitDialog) {
@@ -214,10 +219,70 @@ app.on('before-quit', async (e) => {
       quitTimeout = null
     }
     await triggerSysProxy(false, false)
-    await stopCore()
+    await stopCoreWithTimeout()
     exitApp()
   }
 })
+
+/**
+ * Wrapper around stopCore() with a safety timeout.
+ * If the mihomo kernel is a zombie process (deadlocked), stopCore() may hang
+ * because the child process doesn't emit close/exit events. This wrapper
+ * ensures the app can still exit by force-killing with taskkill and proceeding.
+ */
+async function stopCoreWithTimeout(): Promise<void> {
+  try {
+    await Promise.race([
+      stopCore(),
+      new Promise<void>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`stopCore timed out after ${QUIT_STOP_CORE_TIMEOUT}ms`)),
+          QUIT_STOP_CORE_TIMEOUT
+        )
+      )
+    ])
+  } catch (error) {
+    await appendAppLogJson({
+      timestamp: new Date().toISOString(),
+      level: 'warn',
+      module: 'Main',
+      message: `stopCore timed out during quit, force-exiting. ${error instanceof Error ? error.message : String(error)}`
+    })
+    // Last resort: try to kill any lingering mihomo process via taskkill
+    try {
+      const { exec } = await import('child_process')
+      const { promisify } = await import('util')
+      const execAsync = promisify(exec)
+      await execAsync('taskkill /F /IM mihomo*.exe', { windowsHide: true, timeout: 5000 })
+    } catch {
+      // ignore taskkill errors
+    }
+    // 如果超时（可能由于 TUN/NDIS 死锁），强制清理残留的 TUN 虚拟网卡
+    try {
+      const { exec } = await import('child_process')
+      const { promisify } = await import('util')
+      const execAsync = promisify(exec)
+      const psCommand = [
+        'powershell.exe',
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Get-NetAdapter',
+        '|',
+        'Where-Object',
+        '{',
+        '$_.InterfaceDescription -match "Wintun" -or $_.Name -match "mihomo"',
+        '}',
+        '|',
+        'Disable-NetAdapter',
+        '-Confirm:$false'
+      ].join(' ')
+      await execAsync(psCommand, { windowsHide: true, timeout: 10000 })
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+}
 
 powerMonitor.on('shutdown', async () => {
   if (quitTimeout) {
@@ -231,7 +296,7 @@ powerMonitor.on('shutdown', async () => {
     message: 'System shutdown signal received, stopping core and proxy'
   })
   await triggerSysProxy(false, false, true)
-  await stopCore()
+  await stopCoreWithTimeout()
   exitApp()
 })
 
@@ -297,7 +362,7 @@ powerMonitor.on('suspend', async () => {
       message: 'Debounce window elapsed, system is truly suspending, stopping core and proxy'
     })
     await triggerSysProxy(false, false, true)
-    await stopCore()
+    await stopCoreWithTimeout()
   }, SUSPEND_DEBOUNCE_MS)
 })
 
@@ -356,6 +421,52 @@ powerMonitor.on('resume', async () => {
 app.on('will-quit', () => {
   disableSysProxySync()
 })
+
+/**
+ * 进程退出时的最终清理钩子（同步执行）。
+ * 当 Sparkle GUI 被外部强制杀死（如任务管理器结束进程）时，
+ * Electron 的 before-quit / will-quit 事件可能不会触发。
+ * 但 Node.js 的 process.on('exit') 在任何退出路径下都会触发，
+ * 包括信号终止、未捕获异常等。
+ *
+ * 逻辑：如果不存在 core.pid 文件（说明不是"保留内核退出"模式），
+ * 则强制杀掉所有 mihomo 内核进程，防止变成孤儿进程。
+ *
+ * 注意：exit 事件中只能执行同步代码。
+ */
+let exitCleanupRegistered = false
+function ensureExitCleanup(): void {
+  if (exitCleanupRegistered) return
+  exitCleanupRegistered = true
+
+  process.on('exit', () => {
+    try {
+      // 同步检查 core.pid 是否存在
+      // 如果存在，说明是"保留内核退出"模式，不应杀内核
+      const { existsSync } = require('fs')
+      const { join: joinPath } = require('path')
+      const { dataDir } = require('./utils/dirs')
+      const corePidPath = joinPath(dataDir(), 'core.pid')
+
+      if (!existsSync(corePidPath)) {
+        // 没有 core.pid → 不是保留内核退出模式 → 杀掉所有 mihomo 进程
+        try {
+          require('child_process').execSync(
+            'taskkill /F /IM mihomo*.exe',
+            { windowsHide: true, timeout: 5000 }
+          )
+        } catch {
+          // taskkill 失败忽略（可能进程已不存在）
+        }
+      }
+    } catch {
+      // 清理失败忽略
+    }
+  })
+}
+
+// 在应用启动时注册退出清理钩子
+ensureExitCleanup()
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -764,7 +875,7 @@ export async function createWindow(appConfig?: AppConfig): Promise<void> {
 
     mainWindow.on('session-end', async () => {
       await triggerSysProxy(false, false, true)
-      await stopCore()
+      await stopCoreWithTimeout()
     })
 
     mainWindow.webContents.setWindowOpenHandler((details) => {

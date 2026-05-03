@@ -104,7 +104,7 @@ export const defaultControledMihomoConfig: Partial<MihomoConfig> = {
     'respect-rules': false,
     'enhanced-mode': 'fake-ip',
     'fake-ip-range': '198.18.0.1/16',
-    'fake-ip-filter': ['*', '+.lan', '+.local', 'time.*.com', 'ntp.*.com', '+.market.xiaomi.com'],
+    'fake-ip-filter': ['*', '+.lan', '+.·', 'time.*.com', 'ntp.*.com', '+.market.xiaomi.com', 'com.github.com', 'client.wns.windows.com', '*.wns.windows.com', 'www.msftconnecttest.com', 'ipv6.msftconnecttest.com'],
     'use-hosts': false,
     'use-system-hosts': false,
     'default-nameserver': ['tls://223.5.5.5'],

@@ -1,4 +1,5 @@
-import { ChildProcess, spawn } from 'child_process'
+import { ChildProcess, spawn, exec } from 'child_process'
+import { promisify } from 'util'
 import { dataDir, coreLogPath, mihomoCorePath, mihomoWorkConfigPath } from '../utils/dirs'
 import { generateProfile, getRuntimeConfig } from './factory'
 import {
@@ -44,7 +45,7 @@ import {
 } from '../service/api'
 import { appendAppLog, appendAppLogJson, createLogWritable, setMihomoLogSource } from '../utils/log'
 import { createCoreHookWaiter, createCoreStartupHook } from './startupHook'
-import { stopChildProcess } from './process-control'
+import { stopChildProcess, type StopChildProcessResult } from './process-control'
 import {
   recoverDNS,
   setPublicDNS,
@@ -654,13 +655,39 @@ async function startCoreImpl(
   child.stdout?.pipe(stdout)
   child.stderr?.pipe(stderr)
 
+  // Track retry count for controller listen errors (port conflict)
+  let controllerListenRetryCount = 0
+  const MAX_CONTROLLER_LISTEN_RETRIES = 3
+
   const handleCoreOutput = async (
     str: string,
     reject: (reason?: unknown) => void
   ): Promise<void> => {
     if (isControllerListenError(str)) {
       await appendAppLog(`[Manager]: Controller listen error detected: ${str}\n`)
-      reject(`控制器监听错误:\n${str}`)
+
+      if (controllerListenRetryCount < MAX_CONTROLLER_LISTEN_RETRIES) {
+        controllerListenRetryCount++
+        await appendAppLog(
+          `[Manager]: Port conflict detected, retrying (${controllerListenRetryCount}/${MAX_CONTROLLER_LISTEN_RETRIES})...\n`
+        )
+        // Wait for port to be released before retrying
+        await waitForPortRelease(9090, '127.0.0.2', 3000)
+        // Kill the current child (which failed to bind) and restart
+        if (child && !child.killed) {
+          stopChildProcess(child).catch(() => { })
+        }
+        // Trigger restart via the restartCore path
+        try {
+          await restartCore()
+        } catch (e) {
+          const errorStr = e instanceof Error ? `${e.message}\n${e.stack}` : String(e)
+          await appendAppLog(`[Manager]: Core restart after port conflict failed: ${errorStr}\n`)
+          reject(`控制器监听错误（重试 ${controllerListenRetryCount} 次后仍失败）:\n${str}`)
+        }
+      } else {
+        reject(`控制器监听错误（已重试 ${MAX_CONTROLLER_LISTEN_RETRIES} 次）:\n${str}`)
+      }
     }
 
     if (isUpdaterFinishedLog(str)) {
@@ -784,7 +811,7 @@ async function startCoreImpl(
   return readyPromise
 }
 
-export async function stopCore(force = false): Promise<void> {
+export async function stopCore(force = false): Promise<StopChildProcessResult> {
   const reqId = Math.random().toString(36).substring(7)
   console.trace(`[stopCore:${reqId}] ENTER - force=${force}, currentState=${coreState}`)
   await appendAppLog(`[stopCore:${reqId}] ENTER - force=${force}, currentState=${coreState}\n`)
@@ -792,15 +819,16 @@ export async function stopCore(force = false): Promise<void> {
   // State machine: if already IDLE or STOPPING, skip
   if (coreState === 'IDLE') {
     await appendAppLog(`[stopCore:${reqId}] SKIP - core already IDLE\n`)
-    return
+    return { wasDeadlocked: false, finalSignal: null }
   }
   if (coreState === 'STOPPING') {
     await appendAppLog(`[stopCore:${reqId}] SKIP - already STOPPING\n`)
-    return
+    return { wasDeadlocked: false, finalSignal: null }
   }
 
   logCoreStateTransition('STOPPING')
   const stopCoreStartedAt = Date.now()
+  let stopResult: StopChildProcessResult = { wasDeadlocked: false, finalSignal: null }
 
   try {
     if (!force) {
@@ -826,30 +854,88 @@ export async function stopCore(force = false): Promise<void> {
 
   const { corePermissionMode = 'elevated' } = await getAppConfig()
   if (corePermissionMode === 'service') {
-    await appendAppLog(`[Manager]: Stopping service core (POST /core/stop)...\n`)
-    const t0 = Date.now()
+    // 先快速探测 service 是否可达，避免在 service 未运行时无谓地连接管道
+    // 产生 ENOENT 错误日志（普通模式回退场景下 service 管道不存在是预期行为）
+    let serviceReachable = false
     try {
-      await stopServiceCore()
-      await appendAppLog(`[Manager]: Service core stopped, elapsed: ${Date.now() - t0}ms\n`)
-    } catch (error) {
-      const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
-      await appendAppLog(
-        `[Manager]: stop service core failed, elapsed: ${Date.now() - t0}ms, error: ${errorStr}\n`
-      )
-    } finally {
-      stopServiceCoreEventStream()
-      releaseServiceCoreEventHandler()
-      await appendAppLog(`[Manager]: Service core event stream released\n`)
+      const { test } = await import('../service/api')
+      await test()
+      serviceReachable = true
+    } catch {
+      // service 不可达（ENOENT/ECONNREFUSED），跳过 service 停止逻辑
     }
+
+    if (serviceReachable) {
+      await appendAppLog(`[Manager]: Stopping service core (POST /core/stop)...\n`)
+      const t0 = Date.now()
+      try {
+        await stopServiceCore()
+        await appendAppLog(`[Manager]: Service core stopped, elapsed: ${Date.now() - t0}ms\n`)
+      } catch (error) {
+        const errorStr = error instanceof Error ? `${error.message}\n${error.stack}` : String(error)
+        await appendAppLog(
+          `[Manager]: stop service core failed, elapsed: ${Date.now() - t0}ms, error: ${errorStr}\n`
+        )
+        // 如果 service 连接失败（ENOENT/ECONNREFUSED），说明 service 进程未运行，
+        // 此时应继续尝试停止可能存在的子进程（从 elevated 模式 fallback 过来的），
+        // 而不是跳过子进程停止逻辑。
+      }
+    } else {
+      await appendAppLog(`[Manager]: Service not reachable, skipping service core stop\n`)
+    }
+
+    stopServiceCoreEventStream()
+    releaseServiceCoreEventHandler()
+    await appendAppLog(`[Manager]: Service core event stream released\n`)
   }
 
+  // 无论 service 模式是否成功停止，都尝试停止子进程。
+  // 在以下场景中 child 可能存在：
+  // 1. 从 elevated 模式 fallback 到 service 模式时，child 被赋值
+  // 2. 用户从 service 模式切换回 elevated 模式后，child 被赋值
+  // 3. service 模式启动失败后 fallbackToElevatedCore 创建了子进程
   if (child && !child.killed) {
     await appendAppLog(`[Manager]: Stopping child process (pid: ${child.pid})...\n`)
     const t1 = Date.now()
-    await stopChildProcess(child)
-    await appendAppLog(`[Manager]: Child process stopped, elapsed: ${Date.now() - t1}ms\n`)
+
+    // stopChildProcess has internal Stage 4 (10s total timeout) that guarantees
+    // the Promise will resolve even if the process is a zombie that doesn't
+    // emit close/exit events. No additional timeout wrapper needed here —
+    // adding one would cause stopCore() to throw, breaking restartCore() flow
+    // (e.g., when toggling TUN, restartCore calls stopCore then startCore).
+    stopResult = await stopChildProcess(child)
+
+    await appendAppLog(
+      `[Manager]: Child process stopped, elapsed: ${Date.now() - t1}ms, ` +
+      `wasDeadlocked=${stopResult.wasDeadlocked}, finalSignal=${stopResult.finalSignal}\n`
+    )
     child = undefined as unknown as ChildProcess
+
+    // 如果进程是被强制终止的（NDIS 死锁），清理残留的 TUN 虚拟网卡
+    if (stopResult.wasDeadlocked) {
+      await forceReleaseGhostTun()
+    }
+  } else if (corePermissionMode === 'service') {
+    // 安全网：service 模式下没有子进程可停止（service 未运行且从未 fallback 到 elevated），
+    // 尝试通过 taskkill 强制终止所有 mihomo 进程，确保核心被停止。
+    try {
+      const { execSync } = await import('child_process')
+      execSync('taskkill /F /IM mihomo*.exe', { windowsHide: true, timeout: 5000 })
+      await appendAppLog(`[Manager]: Safety net: taskkill /F /IM mihomo*.exe executed\n`)
+    } catch {
+      // taskkill 失败忽略（可能进程已不存在或无权限）
+    }
   }
+
+  // ===== NDIS Breathing Room =====
+  // After the process has exited, the Windows TCP/IP stack (tcpip.sys) and
+  // TUN driver (WinTun) may still have pending completion callbacks for
+  // NetBufferLists that were in-flight at the time of process termination.
+  // A 1000ms sleep gives the kernel enough time to drain these callbacks
+  // and release the associated network handles (including TCP ports in
+  // TIME_WAIT state).
+  await appendAppLog(`[Manager]: NDIS breathing room: waiting 1000ms for network stack cleanup...\n`)
+  await new Promise((resolve) => setTimeout(resolve, 1000))
 
   const t2 = Date.now()
   await getAxios(true).catch(() => { })
@@ -880,6 +966,8 @@ export async function stopCore(force = false): Promise<void> {
 
   logCoreStateTransition('IDLE')
   await appendAppLog(`[stopCore:${reqId}] EXIT - elapsed=${Date.now() - stopCoreStartedAt}ms\n`)
+
+  return stopResult
 }
 
 function ensureServiceCoreEventHandler(): void {
@@ -1142,6 +1230,133 @@ function isServiceConnectionError(error: unknown): boolean {
   ].some((fragment) => message.toLowerCase().includes(fragment.toLowerCase()))
 }
 
+const execAsync = promisify(exec)
+
+/**
+ * Force-disable ghost WinTun network adapters via PowerShell.
+ *
+ * When the mihomo process is killed (especially after a timeout/deadlock),
+ * the WinTun virtual adapter may remain in a dangling state in the NDIS stack,
+ * holding kernel locks (tcpip.sys) and preventing the next mihomo instance
+ * from binding to the same port (127.0.0.2:9090).
+ *
+ * This function runs a PowerShell command to find and disable any adapter
+ * whose interface description contains "Wintun" or whose name contains
+ * "mihomo" (case-insensitive). Disabling the adapter at the NDIS layer
+ * forces the kernel to release the orphaned network handles.
+ *
+ * NOTE: This requires the Sparkle process to have administrator privileges.
+ * If elevation is not available, the command will fail silently.
+ */
+async function forceReleaseGhostTun(): Promise<void> {
+  await appendAppLog(
+    `[Manager]: ⚠️ [Rescue] Detected possible NDIS deadlock, initiating ghost TUN adapter cleanup...\n`
+  )
+
+  // PowerShell command: find all Wintun or mihomo adapters and disable them.
+  // Disable-NetAdapter forces NDIS to tear down the device object, which
+  // breaks any lingering kernel-level wait chains in tcpip.sys.
+  const psCommand = [
+    'powershell.exe',
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    'Get-NetAdapter',
+    '|',
+    'Where-Object',
+    '{',
+    '$_.InterfaceDescription -match "Wintun" -or $_.Name -match "mihomo"',
+    '}',
+    '|',
+    'Disable-NetAdapter',
+    '-Confirm:$false'
+  ].join(' ')
+
+  try {
+    await execAsync(psCommand, { windowsHide: true, timeout: 10000 })
+    await appendAppLog(
+      `[Manager]: ✅ [Rescue] Ghost TUN adapters disabled, kernel locks released.\n`
+    )
+
+    // Brief pause to let NDIS settle after the adapter teardown
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  } catch (error) {
+    const errorStr = error instanceof Error ? error.message : String(error)
+    await appendAppLog(
+      `[Manager]: ❌ [Rescue] Ghost TUN cleanup failed (may need admin privileges): ${errorStr}\n`
+    )
+  }
+}
+
+/**
+ * Wait for a TCP port to become free (not in TIME_WAIT state).
+ *
+ * After a process exits, the OS may hold the port in TIME_WAIT for up to
+ * 2*MSL (~120s on Windows). This function polls `netstat` to check if the
+ * port is still in use, with a configurable timeout.
+ *
+ * @param port - The port number to check (e.g., 9090)
+ * @param address - The IP address to check (e.g., '127.0.0.2')
+ * @param timeoutMs - Maximum time to wait in milliseconds (default: 5000)
+ * @returns true if the port became free, false if timeout
+ */
+async function waitForPortRelease(
+  port: number,
+  address: string,
+  timeoutMs = 5000
+): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    // Non-Windows platforms don't have the same TIME_WAIT issue
+    return true
+  }
+
+  const startedAt = Date.now()
+  const pollInterval = 200
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      // Use netstat to check if the port is in use
+      const { stdout } = await execAsync(
+        `netstat -ano | findstr "${address}:${port}"`,
+        { windowsHide: true, timeout: 3000 }
+      )
+
+      if (!stdout.trim()) {
+        // Port is free
+        const elapsed = Date.now() - startedAt
+        if (elapsed > 0) {
+          await appendAppLog(
+            `[Manager]: Port ${address}:${port} released after ${elapsed}ms\n`
+          )
+        }
+        return true
+      }
+
+      // Check if all entries are TIME_WAIT (will resolve soon)
+      const lines = stdout.trim().split('\n')
+      const allTimeWait = lines.every((line) =>
+        line.includes('TIME_WAIT')
+      )
+      if (allTimeWait && lines.length <= 2) {
+        // Only TIME_WAIT entries, likely to resolve quickly
+        await appendAppLog(
+          `[Manager]: Port ${address}:${port} in TIME_WAIT (${lines.length} entries), waiting...\n`
+        )
+      }
+    } catch {
+      // netstat command failed, port is likely free
+      return true
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollInterval))
+  }
+
+  await appendAppLog(
+    `[Manager]: ⚠️ Port ${address}:${port} still in use after ${timeoutMs}ms timeout, proceeding anyway\n`
+  )
+  return false
+}
+
 /**
  * Read the current profile's disabledRules and re-apply them to the running
  * Mihomo kernel. This is called after hotReloadCore() and restartCore()
@@ -1250,10 +1465,30 @@ export async function restartCore(): Promise<void> {
   try {
     const t0 = Date.now()
     await appendAppLog(`[restartCore:${reqId}] stopping core...\n`)
-    await stopCore()
+
+    // Step 1: Stop the core (with NDIS breathing room built into stopCore)
+    const stopResult = await stopCore()
     await appendAppLog(
-      `[restartCore:${reqId}] stopCore completed, elapsed: ${Date.now() - t0}ms\n`
+      `[restartCore:${reqId}] stopCore completed, elapsed: ${Date.now() - t0}ms, ` +
+      `wasDeadlocked=${stopResult.wasDeadlocked}\n`
     )
+
+    // Step 2: If the process was force-killed (deadlock detected), run ghost TUN cleanup
+    if (stopResult.wasDeadlocked) {
+      await appendAppLog(
+        `[restartCore:${reqId}] ⚠️ Deadlock detected during stop, running ghost TUN cleanup...\n`
+      )
+      await forceReleaseGhostTun()
+    }
+
+    // Step 3: Wait for the controller port (127.0.0.2:9090) to be released
+    // This prevents the "Only one usage of each socket address" error that occurs
+    // when the new mihomo process tries to bind before the old port is fully released
+    // from TIME_WAIT state.
+    await appendAppLog(
+      `[restartCore:${reqId}] Waiting for controller port (127.0.0.2:9090) to be released...\n`
+    )
+    await waitForPortRelease(9090, '127.0.0.2', 5000)
 
     const t1 = Date.now()
     await appendAppLog(`[restartCore:${reqId}] starting core...\n`)
@@ -1314,7 +1549,9 @@ export async function startNetworkDetection(): Promise<void> {
       const promises = await startCore()
       await Promise.all(promises)
     },
-    stopCore
+    stopCore: async () => {
+      await stopCore()
+    }
   })
 }
 
